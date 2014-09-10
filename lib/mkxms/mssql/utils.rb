@@ -65,4 +65,19 @@ class << Mkxms::Mssql::Utils
   def newline_prefixed(s)
     "\n" + s
   end
+  
+  def chars_to_tab(prev, tab_width: 4)
+    (prev.chars.length + 3) % 4 + 1
+  end
+  
+  def expand_tabs(s, tab_width: 4)
+    return s unless s.include? "\t"
+    
+    s.each_line.map do |l|
+      while l.include? "\t"
+        l.sub!("\t") {|m| ' ' * chars_to_tab($`, tab_width: tab_width)}
+      end
+      l
+    end.join('')
+  end
 end

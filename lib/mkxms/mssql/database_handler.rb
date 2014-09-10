@@ -255,17 +255,33 @@ module Mkxms::Mssql
     end
     
     def write_access_def(access_obj, obj_type)
-      def_info = {
-        'define' => obj_type,
-        'sql' => access_obj.to_sql,
-      }
-      references = access_obj.respond_to?(:references) ? access_obj.references : []
-      def_info['referencing'] = references unless references.empty?
+      # Use Psych mid-level emitting API to specify literal syntax for SQL
+      def_tree = Psych::Nodes::Mapping.new
+      ["define", obj_type, "sql"].each do |s|
+        def_tree.children << Psych::Nodes::Scalar.new(s)
+      end
+      def_tree.children << Psych::Nodes::Scalar.new(access_obj.to_sql, nil, nil, false, true,
+                                                    Psych::Nodes::Scalar::LITERAL)
+      unless (references = access_obj.respond_to?(:references) ? access_obj.references : []).empty?
+        def_tree.children << Psych::Nodes::Scalar.new('referencing')
+        def_tree.children << (ref_seq = Psych::Nodes::Sequence.new)
+        references.each do |r|
+          ref_seq.children << Psych::Nodes::Scalar.new(r)
+        end
+      end
+      
+      def_doc = Psych::Nodes::Document.new
+      def_doc.children << def_tree
+      def_stream = Psych::Nodes::Stream.new
+      def_stream.children << def_doc
       
       access_dir = @schema_dir.join(XMigra::SchemaManipulator::ACCESS_SUBDIR)
       access_dir.mkpath
       access_dir.join(access_obj.qualified_name + '.yaml').open('w') do |ao_file|
-        YAML.dump(def_info, ao_file, line_width: -1)
+        def_str = def_stream.to_yaml(nil, line_width: -1)
+        require 'pry'; binding.pry unless $NO_MORE_PRYING
+        ao_file.puts(def_str)
+        #def_stream.to_yaml(ao_file, line_width: -1)
       end
     end
     

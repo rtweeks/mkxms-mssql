@@ -1,3 +1,4 @@
+require 'mkxms/mssql/access_object_definition'
 require 'mkxms/mssql/property_handler'
 require 'mkxms/mssql/utils'
 
@@ -19,8 +20,8 @@ module Mkxms::Mssql
     attr_reader :definition, :param_properties
     
     def to_sql
-      # TODO: Parse beginning of definition to substitute in the [{filename}] metavariable.
-      ([definition] + extended_properties_sql + param_properties_sql).join("\n")
+      mvdef = AccessObjectDefinition.replace_object_name(definition, "[{filename}]")
+      ([mvdef] + extended_properties_sql + param_properties_sql).join("\n")
     end
     
     def param_properties_sql
