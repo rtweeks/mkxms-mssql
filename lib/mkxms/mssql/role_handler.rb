@@ -17,11 +17,11 @@ module Mkxms::Mssql
     attr_reader :encompassing_roles
     
     def definition_sql
-      if owner
-        "CREATE ROLE #{name} AUTHORIZATION #{owner};"
-      else
-        "CREATE ROLE #{name};"
-      end + extended_properties_sql.joined_on_new_lines
+      "CREATE ROLE #{name};" + extended_properties_sql.joined_on_new_lines
+    end
+    
+    def authorization_sql
+      "ALTER AUTHORIZATION ON ROLE:: #{name} TO #{owner};" if owner
     end
     
     def membership_sql

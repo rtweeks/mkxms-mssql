@@ -132,7 +132,7 @@ module Mkxms::Mssql
       create_migration(
         "create-roles",
         "Create roles for accessing the database.",
-        (roles.map(&:definition_sql) + roles.map(&:membership_sql)).join("\n"),
+        (roles.map(&:definition_sql) + roles.map(&:authorization_sql).compact + roles.map(&:membership_sql)).join("\n"),
         roles.map(&:name).sort
       )
       
