@@ -38,6 +38,9 @@ module Mkxms::Mssql
       
       def initialize(builder, outer_binding)
         @builder = builder
+        while sb = surrounding_binding(outer_binding)
+          outer_binding = sb
+        end
         @outer_binding = outer_binding
       end
       
@@ -52,11 +55,17 @@ module Mkxms::Mssql
       end
       
       private
-      def method_missing(sym, *args)
-        if args.empty?
+      def method_missing(sym, *args, &blk)
+        if args.empty? and blk.nil?
           @outer_binding.eval sym.to_s
         else
-          @outer_binding.eval("method(:#{sym})").call(*args)
+          @outer_binding.eval("method(:#{sym})").call(*args, &blk)
+        end
+      end
+      
+      def surrounding_binding(b)
+        if (b_self = b.eval("self")).kind_of? DSL
+          b_self.instance_variable_get(:@outer_binding)
         end
       end
     end
@@ -81,7 +90,7 @@ module Mkxms::Mssql
       end
     end
     
-    def puts(s, options = {})
+    def puts(s = "", options = {})
       sub_pattern = options.fetch(:sub, '%s')
       sub_pattern = NAMED_SUBSTITUTIONS if sub_pattern == :named
       if sub_pattern.nil?

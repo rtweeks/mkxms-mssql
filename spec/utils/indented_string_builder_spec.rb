@@ -166,5 +166,53 @@ describe Mkxms::Mssql::IndentedStringBuilder do
       
       expect(class_dsl_result).to eql("Hello, world!\n")
     end
+    
+    context "in subclass" do
+      it "properly handles calls to methods nested within DSL" do
+        test_class = Class.new(subject.class) do
+          def initialize
+            super
+            
+            dsl {
+              puts "BEGIN"
+              indented {
+                add_command
+              }
+              puts "END"
+            }
+          end
+          
+          def add_command
+            dsl {
+              puts "command"
+            }
+          end
+        end
+        
+        test_instance = test_class.new
+        expect(test_instance.to_s).to eql("BEGIN\n  command\nEND\n")
+      end
+      
+      it "property handles plain #puts calls within a called method nested within DSL" do
+        test_class = Class.new(subject.class) do
+          def initialize
+            super
+            
+            dsl {
+              puts "BEGIN"
+              indented {add_command}
+              puts "END"
+            }
+          end
+          
+          def add_command
+            puts "command"
+          end
+        end
+        
+        test_instance = test_class.new
+        expect(test_instance.to_s).to eql("BEGIN\n  command\nEND\n")
+      end
+    end
   end
 end
