@@ -37,7 +37,7 @@ module Mkxms::Mssql
       if @spatial_index_geometry
       else
         [].tap do |parts|
-          parts << "CREATE #{'UNIQUE ' if unique?}INDEX #@name ON #@schema.#@relation (\n" +
+          parts << "CREATE #{'UNIQUE ' if unique?}INDEX #@name ON #{qualified_relation} (\n" +
           @columns.map(&:to_sql).join(', ') +
           "\n)"
           
@@ -63,6 +63,10 @@ module Mkxms::Mssql
     
     def property_subject_identifiers
       ['SCHEMA', @schema, 'TABLE', @relation, 'INDEX', @name].map {|n| Utils.unquoted_name(n)}
+    end
+    
+    def qualified_relation
+      [@schema, @relation].join '.'
     end
   end
   

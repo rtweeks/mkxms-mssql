@@ -5,6 +5,7 @@ require 'yaml'
 
 %w[
 
+  adoption_script_writer
   check_constraint_handler
   default_constraint_handler
   filegroup_handler
@@ -32,10 +33,13 @@ module Mkxms::Mssql
     extend Utils::InitializedAttributes
     include ExtendedProperties, PropertyHandler::ElementHandler
     
+    ADOPTION_SQL_FILE = "adopt.sql"
+    
     def initialize(**kwargs)
       @schema_dir = kwargs[:schema_dir] || Pathname.pwd
     end
     
+    attr_reader :schema_dir
     attr_init(:filegroups, :schemas, :roles, :tables, :column_defaults, :pku_constraints, :foreign_keys, :check_constraints){[]}
     attr_init(:indexes, :statistics){[]}
     attr_init(:views, :udfs, :procedures){[]}
@@ -248,6 +252,8 @@ module Mkxms::Mssql
           p_file
         )
       end
+      
+      create_adoption_script
     end
     
     def migration_chain
@@ -292,9 +298,7 @@ module Mkxms::Mssql
       access_dir.mkpath
       access_dir.join(access_obj.qualified_name + '.yaml').open('w') do |ao_file|
         def_str = def_stream.to_yaml(nil, line_width: -1)
-        require 'pry'; binding.pry unless $NO_MORE_PRYING
         ao_file.puts(def_str)
-        #def_stream.to_yaml(ao_file, line_width: -1)
       end
     end
     
@@ -322,6 +326,14 @@ module Mkxms::Mssql
           line_width: -1
         )
       end
+    end
+    
+    def create_adoption_script
+      adoption_script_path = @schema_dir.join(ADOPTION_SQL_FILE)
+      
+      writer = AdoptionScriptWriter.new(self)
+      
+      writer.create_script adoption_script_path
     end
   end
 end

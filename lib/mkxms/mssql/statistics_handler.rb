@@ -23,13 +23,17 @@ module Mkxms::Mssql
     flags_query :manual_recompute
     
     def xmigra_params
-      ["#@schema.#@relation", @columns.join(', ')].tap do |result|
+      [qualified_relation, @columns.join(', ')].tap do |result|
         result << {'with' => 'NORECOMPUTE'} if manual_recompute?
       end
     end
     
     def name_params_pair
       [name, xmigra_params]
+    end
+    
+    def qualified_relation
+      "#@schema.#@relation"
     end
   end
   
@@ -53,4 +57,3 @@ module Mkxms::Mssql
     end
   end
 end
-
