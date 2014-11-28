@@ -53,10 +53,11 @@ module Mkxms::Mssql
     def initialize(name)
       @name = name
       @flags = []
+      @type_info = {}
     end
     
     attr_accessor :name, :type, :collation, :computed_expression
-    attr_reader :flags
+    attr_reader :flags, :type_info
     
     flags_query :filestream, :nullable, :identity, :replicated, :rowguid, :persisted
     
@@ -66,19 +67,21 @@ module Mkxms::Mssql
         parts << "AS " + computed_expression
         parts << "PERSISTED" if persisted?
       else
-        parts << type
-        parts << "COLLATE " + collation if collation
-        parts << (nullable? ? 'NULL' : 'NOT NULL')
-        if identity?
-          parts << "IDENTITY"
-          parts << "NOT FOR REPLICATION" unless replicated?
-        end
-        if rowguid?
-          parts << "ROWGUIDCOL"
-        end
+        each_type_part {|part| parts << part}
       end
       
       return parts.join(' ')
+    end
+    
+    def each_type_part
+      yield type
+      yield("COLLATE " + collation) if collation
+      yield(nullable? ? 'NULL' : 'NOT NULL')
+      if identity?
+        yield "IDENTITY"
+        yield("NOT FOR REPLICATION") unless replicated?
+      end
+      yield("ROWGUID") if rowguid?
     end
   end
 
@@ -89,18 +92,20 @@ module Mkxms::Mssql
       def initialize(columns, node)
         a = node.attributes
         
-        col_type = %w[type-schema type].map {|k| a[k]}.compact.join('.')
+        col_attrs = {}
+        use_attr = proc {|k| col_attrs[k.gsub('-', '_').to_sym] = node.attributes[k]}
+        col_type = %w[type-schema type].map {|k| use_attr[k]}.compact.join('.')
         
         if a.has_key?('capacity')
-          col_type << "(%s)" % a['capacity']
+          col_type << "(%s)" % [use_attr['capacity']]
         end
         
         prec_scale = []
         if a.has_key?('precision') || a.has_key?('scale')
-          prec_scale << a['precision']
+          prec_scale << use_attr['precision']
         end
         if a.has_key?('scale')
-          prec_scale << a['scale']
+          prec_scale << use_attr['scale']
         end
         unless prec_scale.empty?
           col_type << "(%s)" % (prec_scale.join(', '))
@@ -108,9 +113,10 @@ module Mkxms::Mssql
         
         if a.has_key?('xml_collection_id')
           col_type << "(%s %s)" % [
-            a['full-xml-document'] ? 'DOCUMENT' : 'CONTENT',
+            xml_structure = (a['full-xml-document'] ? 'DOCUMENT' : 'CONTENT'),
             a['xml_collection_id']
           ]
+          col_attrs[:xml_validation] = {xml_structure.downcase => a['xml_collection_id']}
         end
         
         raise UnsupportedFeatureError.new("Column #{name} declared 'not-ansi-padded'") if a['not-ansi-padded']
@@ -121,6 +127,7 @@ module Mkxms::Mssql
           c.flags << :nullable if a['nullable']
           c.flags << :replicated if a['replicated']
           c.flags << :filestream if a['filestream']
+          c.type_info.update(col_attrs)
           columns << c
         end
       end

@@ -202,7 +202,7 @@ module Mkxms::Mssql
         "add-super-permissions",
         "Add permissions that confound the normal GRANT model.",
         super_permissions.join("\n"),
-        permissions.map {|p| p.super_permissions.map(&:target)}.flatten.uniq.sort
+        permissions.map {|p| p.super_permissions.map(&:unscoped_target)}.flatten.uniq.sort
       ) unless super_permissions.empty?
       
       indexes.each do |index|

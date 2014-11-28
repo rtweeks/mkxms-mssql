@@ -5,8 +5,8 @@ module Mkxms; end
 module Mkxms::Mssql
   class PermissionGroup
     ACTION_STATEMENT_PROLOG_TEMPLATES = {
-      'granted' => 'GRANT %s TO',
-      'denied' => 'DENY %s TO',
+      'granted' => 'GRANT %s ON %s TO %s',
+      'denied' => 'DENY %s ON %s TO %s',
     }
     
     def initialize(action, subject)
@@ -21,8 +21,9 @@ module Mkxms::Mssql
     def super_permissions_sql
       super_permissions.map do |p|
         ''.tap do |sql|
-          sql << ACTION_STATEMENT_PROLOG_TEMPLATES[p.action] % [p.name]
+          sql << ACTION_STATEMENT_PROLOG_TEMPLATES[action] % [p.name, p.target, subject]
           sql << ' WITH GRANT OPTION' if p.grant_option?
+          sql << ';'
         end
       end
     end
@@ -54,9 +55,14 @@ module Mkxms::Mssql
       @target_type = attrs['target-type']
       @name_scope = attrs['name-scope']
       @schema = attrs['in-schema']
+      @object = attrs['on']
       @column = attrs['column']
-      @target = if attrs.has_key?('on')
-        [(@name_scope + ' :: ' if @name_scope), @schema, attrs['on']].compact.join('.').tap do |subject|
+      @target = if @object
+        "".tap do |subject|
+          if @schema
+            subject << (@schema + '.')
+          end
+          subject << @object
           subject << " (#@column)" if @column
         end
       else
@@ -66,13 +72,29 @@ module Mkxms::Mssql
       @authority = attrs['by']
     end
     
-    attr_accessor :name, :target_type, :name_scope, :target, :column, :authority
+    attr_accessor :name, :target_type, :name_scope, :column, :authority
+    
+    def target(scoped: true)
+      if scoped && @name_scope
+        "#@name_scope :: #@target"
+      else
+        @target
+      end
+    end
+    
+    def unscoped_target
+      target(scoped: false)
+    end
     
     def grant_option?
       @grant_option
     end
     def grant_option=(value)
       @grant_option = value
+    end
+    
+    def object_id_parts
+      [@target_type, @schema, @object, @column]
     end
   end
   

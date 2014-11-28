@@ -82,7 +82,7 @@ module Mkxms::Mssql
     end
     
     def record_missing_handler(context_class, method_name)
-      @missing_handler << MissingHandler.new(context_class, method_name)
+      @missing_handlers << MissingHandler.new(context_class, method_name)
     end
   end
 end
