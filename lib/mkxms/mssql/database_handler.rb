@@ -8,6 +8,7 @@ require 'yaml'
   check_constraint_handler
   default_constraint_handler
   filegroup_handler
+  foreign_key_handler
   function_handler
   index_handler
   permission_handler
@@ -35,7 +36,7 @@ module Mkxms::Mssql
       @schema_dir = kwargs[:schema_dir] || Pathname.pwd
     end
     
-    attr_init(:filegroups, :schemas, :roles, :tables, :column_defaults, :pku_constraints, :check_constraints){[]}
+    attr_init(:filegroups, :schemas, :roles, :tables, :column_defaults, :pku_constraints, :foreign_keys, :check_constraints){[]}
     attr_init(:indexes, :statistics){[]}
     attr_init(:views, :udfs, :procedures){[]}
     attr_init(:permissions){[]}
@@ -69,6 +70,10 @@ module Mkxms::Mssql
     
     def handle_primary_key_element(parse)
       parse.delegate_to PrimaryKeyHandler, pku_constraints
+    end
+    
+    def handle_foreign_key_element(parse)
+      parse.delegate_to ForeignKeyHandler, foreign_keys
     end
     
     def handle_unique_constraint_element(parse)
@@ -140,7 +145,7 @@ module Mkxms::Mssql
       create_migration(
         "create-schemas",
         "Create schemas for containing database objects and controlling access.",
-        joined_modobj_sql(schemas),
+        joined_modobj_sql(schemas, sep: "\nGO\n"),
         schemas.map(&:name).sort
       )
       
@@ -169,6 +174,14 @@ module Mkxms::Mssql
         "Add primary key and unique constraints.",
         joined_modobj_sql(pku_constraints),
         pku_constraints.map {|c| [c.schema, c.qualified_table, c.qualified_name].compact}.flatten.uniq.sort
+      )
+      
+      # Migration: Add foreign key constraints
+      create_migration(
+        "add-foreign-key-constraints",
+        "Add foreign key constraints.",
+        joined_modobj_sql(foreign_keys),
+        foreign_keys.map {|c| [c.schema, c.qualified_table, c.qualified_name].compact}.flatten.uniq.sort
       )
       
       # Migration: Add check constraints
