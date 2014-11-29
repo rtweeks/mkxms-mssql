@@ -18,6 +18,42 @@ describe Mkxms::Mssql::SqlStringManipulators do
       expect(s.lines.size).to eq(2)
       expect(s.lines[0]).not_to start_with(' ')
     end
+    
+    it "handles nested indentation" do
+      s = T.dedent %Q{
+        one
+          two
+        one
+          two
+      }
+      expect(s.lines.size).to eq(4)
+      expect(s.lines[0]).not_to start_with(' ')
+      expect(s.lines[1]).to start_with('  t')
+    end
+    
+    it "allows leading blank lines" do
+      s = T.dedent %Q{
+        
+        after the break
+      }
+      expect(s.lines[0]).to match(/^\s*$/)
+    end
+    
+    it "allows trailing blank lines" do
+      s = T.dedent %Q{
+        before the break
+        
+      }
+      expect(s.lines[1]).to match(/^\s*$/)
+    end
+    
+    it "allows internal blank lines" do
+      s = T.dedent %Q{
+        before
+        
+        after
+      }
+      expect(s.lines[1]).to eq("\n")
     end
   end
 end
