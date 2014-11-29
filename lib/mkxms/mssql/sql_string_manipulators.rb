@@ -13,7 +13,7 @@ module Mkxms::Mssql
         when margin.nil? && l =~ /^ *$/
           l
         when margin.nil?
-          margin = /^ */.match(l).length
+          margin = /^ */.match(l)[0].length
           l[margin..-1]
         when s =~/^\s*$/
           l[margin..-1]
