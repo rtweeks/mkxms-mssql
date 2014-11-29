@@ -20,6 +20,8 @@ module Mkxms::Mssql
         else
           /^(?: *)(.*)/.match(l)[1]
         end
+      end.tap do |lines|
+        lines.shift if lines.first == "\n"
       end.join('')
     end
     
