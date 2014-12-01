@@ -129,7 +129,7 @@ module Mkxms::Mssql
         subbed_multiline = false
         s.scan(scan_pattern) do |m|
           chunk_range, completed = completed...$~.begin(0), $~.end(0)
-          chunk_empty = !chunk_range.cover?(chunk_range.begin)
+          chunk_empty = !chunk_range.cover?(chunk_range.begin) && s != ''
           
           case
           when m == "\n"
