@@ -230,7 +230,7 @@ module Mkxms::Mssql
       def add_table_tests
         dsl {
           puts "IF NOT EXISTS (%s)" do
-            puts %Q{
+            puts dedent %Q{
               SELECT * FROM sys.tables t
               INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
               WHERE t.name = #{table_name_literal}
