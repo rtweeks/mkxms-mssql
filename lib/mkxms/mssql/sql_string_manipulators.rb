@@ -15,10 +15,8 @@ module Mkxms::Mssql
         when margin.nil?
           margin = /^ */.match(l)[0].length
           l[margin..-1]
-        when s =~/^\s*$/
-          l[margin..-1]
         else
-          /^(?: *)(.*)/.match(l)[1]
+          /^(?: {0,#{margin}})(.*)/m.match(l)[1]
         end
       end.tap do |lines|
         lines.shift if lines.first == "\n"
