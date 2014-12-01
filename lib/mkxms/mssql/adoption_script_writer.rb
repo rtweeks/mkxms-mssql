@@ -263,28 +263,28 @@ module Mkxms::Mssql
           }
           puts "END;"
           puts
-          QueryCursor.new(
-            dedent(%Q{
-              SELECT c.object_id, c.column_id
-              FROM sys.columns c
-              INNER JOIN sys.tables t ON c.object_id = t.object_id
-              INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-              WHERE t.name = #{table_name_literal}
-              AND s.name = #{schema_name_literal}
-              ORDER BY c.column_id;
-            }),
-            "@column_object INT, @column_id INT",
-            output_to: self
-          ).expectations(
-            on_extra: ->{puts error_sql "Table #{table_id} has one or more unexpected columns."},
-          ) do |test|
-            table.columns.each do |column|
-              test.row(
-                on_missing: ->{puts error_sql "Column #{column.name} not found where expected in #{table_id}."},
-              ) {add_column_tests(column)}
-            end
-          end
         }
+        QueryCursor.new(
+          dedent(%Q{
+            SELECT c.object_id, c.column_id
+            FROM sys.columns c
+            INNER JOIN sys.tables t ON c.object_id = t.object_id
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE t.name = #{table_name_literal}
+            AND s.name = #{schema_name_literal}
+            ORDER BY c.column_id;
+          }),
+          "@column_object INT, @column_id INT",
+          output_to: self
+        ).expectations(
+          on_extra: ->{puts error_sql "Table #{table_id} has one or more unexpected columns."},
+        ) do |test|
+          table.columns.each do |column|
+            test.row(
+              on_missing: ->{puts error_sql "Column #{column.name} not found where expected in #{table_id}."},
+            ) {add_column_tests(column)}
+          end
+        end
       end
       
       def add_column_tests(column)
