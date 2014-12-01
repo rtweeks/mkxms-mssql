@@ -213,6 +213,27 @@ describe Mkxms::Mssql::IndentedStringBuilder do
         test_instance = test_class.new
         expect(test_instance.to_s).to eql("BEGIN\n  command\nEND\n")
       end
+      
+      it "handles blank lines properly" do
+        test_class = Class.new(described_class) do
+          def initialize
+            super
+            
+            add_level_one
+          end
+          
+          def add_level_one
+            dsl {
+              puts "foo"
+              puts
+            }
+            puts "bar"
+          end
+        end
+        
+        test_instance = test_class.new
+        expect(test_instance.to_s).to eql("foo\n\nbar\n")
+      end
     end
   end
 end
