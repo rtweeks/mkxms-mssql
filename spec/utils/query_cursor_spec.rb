@@ -16,7 +16,7 @@ describe Mkxms::Mssql::QueryCursor do
       sql.puts "  -- Handle a row"
     end
     
-    expect(sql.string).to eql("DECLARE @schema_id INT, @schema_name SYSNAME;\nDECLARE test_cursor CURSOR LOCAL FOR\nSELECT schema_id, name FROM sys.schemas;\nFETCH NEXT FROM test_cursor INTO @schema_id, @schema_name;\nWHILE @@FETCH_STATUS = 0\nBEGIN\n  -- Handle a row\n  FETCH NEXT FROM test_cursor INTO @schema_id, @schema_name;\nEND;\n")
+    expect(sql.string).to eql("DECLARE @schema_id INT, @schema_name SYSNAME;\nDECLARE test_cursor CURSOR LOCAL FOR\nSELECT schema_id, name FROM sys.schemas;\nOPEN test_cursor;\nFETCH NEXT FROM test_cursor INTO @schema_id, @schema_name;\nWHILE @@FETCH_STATUS = 0\nBEGIN\n  -- Handle a row\n  FETCH NEXT FROM test_cursor INTO @schema_id, @schema_name;\nEND;\n")
   end
   
   it "provides a expectation loop" do
@@ -52,6 +52,6 @@ describe Mkxms::Mssql::QueryCursor do
       end
     end
     
-    expect(sql.string).to eql("DECLARE @column_name SYSNAME, @is_sorted_descending BIT;\nDECLARE test_cursor CURSOR LOCAL FOR\nSELECT c.name, ic.is_descending_key FROM sys.index_columns ic JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id WHERE ic.object_id = @relation_id AND ic.index_id = @index_id AND ic.key_ordinal >= 1 ORDER BY ic.key_ordinal;\nFETCH NEXT FROM test_cursor INTO @column_name, @is_sorted_descending;\nIF @@FETCH_STATUS <> 0\nBEGIN\n-- Handle missing entry\nEND ELSE BEGIN\n-- Test column name is foo.\n-- Test is ascending.\nEND;\nFETCH NEXT FROM test_cursor INTO @column_name, @is_sorted_descending;\nIF @@FETCH_STATUS <> 0\nBEGIN\n-- Handle missing entry\nEND ELSE BEGIN\n-- Test column name is bar.\n-- Test is ascending.\nEND;\nFETCH NEXT FROM test_cursor INTO @column_name, @is_sorted_descending;\nIF @@FETCH_STATUS <> 0\nBEGIN\n-- Handle missing entry\nEND ELSE BEGIN\n-- Test column name is baz.\n-- Test is descending.\nEND;\nFETCH NEXT FROM test_cursor INTO @column_name, @is_sorted_descending;\nIF @@FETCH_STATUS = 0\nBEGIN\n-- Handle extra entry/ies\nEND;\nCLOSE  test_cursor; DEALLOCATE  test_cursor;\n")
+    expect(sql.string).to eql("DECLARE @column_name SYSNAME, @is_sorted_descending BIT;\nDECLARE test_cursor CURSOR LOCAL FOR\nSELECT c.name, ic.is_descending_key FROM sys.index_columns ic JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id WHERE ic.object_id = @relation_id AND ic.index_id = @index_id AND ic.key_ordinal >= 1 ORDER BY ic.key_ordinal;\nOPEN test_cursor;\n\nFETCH NEXT FROM test_cursor INTO @column_name, @is_sorted_descending;\nIF @@FETCH_STATUS <> 0\nBEGIN\n-- Handle missing entry\nEND ELSE BEGIN\n-- Test column name is foo.\n-- Test is ascending.\nEND;\n\nFETCH NEXT FROM test_cursor INTO @column_name, @is_sorted_descending;\nIF @@FETCH_STATUS <> 0\nBEGIN\n-- Handle missing entry\nEND ELSE BEGIN\n-- Test column name is bar.\n-- Test is ascending.\nEND;\n\nFETCH NEXT FROM test_cursor INTO @column_name, @is_sorted_descending;\nIF @@FETCH_STATUS <> 0\nBEGIN\n-- Handle missing entry\nEND ELSE BEGIN\n-- Test column name is baz.\n-- Test is descending.\nEND;\nFETCH NEXT FROM test_cursor INTO @column_name, @is_sorted_descending;\nIF @@FETCH_STATUS = 0\nBEGIN\n-- Handle extra entry/ies\nEND;\nCLOSE  test_cursor; DEALLOCATE  test_cursor;\n")
   end
 end

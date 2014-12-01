@@ -4,9 +4,10 @@ module Mkxms::Mssql
   class QueryCursor
     def initialize(select_statement, variables, options = {})
       @select_statement = select_statement
-      @select_statement += ';' unless @select_statement.end_with? ';'
+      @select_statement += ';' unless @select_statement =~ /;\s*\Z/
       @cursor = options[:cursor_name] || self.class.generated_cursor_name
       @out = options[:output_to] || $stdout
+      @indented = @out.respond_to?(:indented) ? @out.method(:indented) : ->(&blk) {blk.call}
       @global = options[:global]
       @indent = options[:indent] || '  '
       
@@ -54,7 +55,7 @@ module Mkxms::Mssql
         fetch_next
         @out.puts "IF @@FETCH_STATUS = 0"
         @out.puts "BEGIN"
-        extra_action.call
+        indented {extra_action.call}
         @out.puts "END;"
       end
       
@@ -64,12 +65,15 @@ module Mkxms::Mssql
     def test_entry(opts = {})
       opts = {} unless opts.kind_of? Hash
       missing_action = expectation_failure_action(opts[:on_missing]) || proc {}
+      @out.puts
       fetch_next
       @out.puts "IF @@FETCH_STATUS <> 0"
       @out.puts "BEGIN"
-      missing_action.call
+      indented {missing_action.call}
       @out.puts "END ELSE BEGIN"
-      yield
+      indented {
+        yield
+      }
       @out.puts "END;"
     end
     
@@ -101,6 +105,10 @@ module Mkxms::Mssql
     
     def tear_down_loop
       @out.puts "CLOSE #{cursor_scope(false)} #@cursor; DEALLOCATE #{cursor_scope(false)} #@cursor;"
+    end
+    
+    def indented(&blk)
+      @indented.call(&blk)
     end
     
     def self.generated_cursor_name
