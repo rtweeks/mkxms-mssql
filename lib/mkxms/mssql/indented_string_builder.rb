@@ -48,7 +48,13 @@ module Mkxms::Mssql
       
       def puts(*args, &blk)
         if blk
-          @builder.puts(*args) {IndentedStringBuilder.new.tap {|i| i.dsl(&blk)}}
+          if args[0].kind_of? Range
+            @builder.puts(args[0].begin, *args[1..-1])
+            indented(&blk)
+            @builder.puts(args[0].end, *args[1..-1])
+          else
+            @builder.puts(*args) {IndentedStringBuilder.new.tap {|i| i.dsl(&blk)}}
+          end
         else
           @builder.puts(*args)
         end
