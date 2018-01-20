@@ -50,6 +50,23 @@ module Mkxms::Mssql::Utils
       item.send(@children_message).each(&blk)
     end
   end
+  
+  module StringHelpers
+    def expand_tabs(tabstops_every = 8)
+      self.lines.map do |l|
+        if l.include?("\t")
+          segs = l.split("\t")
+          segs[0...-1].map do |seg|
+            # seg length must _increase_ to a multiple of 8
+            spaces_needed = tabstops_every - (seg.length + 1) % tabstops_every + 1
+            seg + ' ' * spaces_needed
+          end.join('') + segs[-1]
+        else
+          l
+        end
+      end.join('')
+    end
+  end
 end
 
 class << Mkxms::Mssql::Utils
@@ -80,4 +97,8 @@ class << Mkxms::Mssql::Utils
       l
     end.join('')
   end
+end
+
+class String
+  include Mkxms::Mssql::Utils::StringHelpers
 end

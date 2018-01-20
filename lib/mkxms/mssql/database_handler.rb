@@ -8,6 +8,7 @@ require 'yaml'
   adoption_script_writer
   check_constraint_handler
   default_constraint_handler
+  dml_trigger_handler
   filegroup_handler
   foreign_key_handler
   function_handler
@@ -35,12 +36,20 @@ module Mkxms::Mssql
     
     ADOPTION_SQL_FILE = "adopt.sql"
     
+    class IgnoreText
+      def initialize(node)
+      end
+      
+      def handle_text(t, node)
+      end
+    end
+    
     def initialize(**kwargs)
       @schema_dir = kwargs[:schema_dir] || Pathname.pwd
     end
     
     attr_reader :schema_dir
-    attr_init(:filegroups, :schemas, :roles, :tables, :column_defaults, :pku_constraints, :foreign_keys, :check_constraints){[]}
+    attr_init(:filegroups, :schemas, :roles, :tables, :column_defaults, :pku_constraints, :foreign_keys, :check_constraints, :dml_triggers){[]}
     attr_init(:indexes, :statistics){[]}
     attr_init(:views, :udfs, :procedures){[]}
     attr_init(:permissions){[]}
@@ -114,6 +123,18 @@ module Mkxms::Mssql
     
     def handle_denied_element(parse)
       parse.delegate_to PermissionHandler, permissions
+    end
+    
+    def handle_clr_assembly_element(parse)
+      parse.delegate_to IgnoreText
+    end
+    
+    def handle_clr_type_element(parse)
+      
+    end
+    
+    def handle_dml_trigger_element(parse)
+      parse.delegate_to DmlTriggerHandler, dml_triggers
     end
     
     def create_source_files
@@ -195,6 +216,16 @@ module Mkxms::Mssql
         joined_modobj_sql(check_constraints),
         check_constraints.map {|c| [c.schema, c.qualified_table, c.qualified_name].compact}.flatten.uniq.sort
       )
+      
+      # Migration: Add DML triggers
+      create_migration(
+        "add-triggers",
+        "Add triggers.",
+        joined_modobj_sql(dml_triggers, sep: DmlTriggerHandler.ddl_block_separator) + "\n",
+        dml_triggers.map do |t|
+          [t.schema, t.table.qualified_name, t.qualified_name].compact
+        end.flatten.uniq.sort
+      ) unless dml_triggers.empty?
       
       # Check that no super-permissions reference a view, user-defined function, or stored procedure
       access_object_names = (views + udfs + procedures).map {|ao| ao.qualified_name}
