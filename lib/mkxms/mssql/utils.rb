@@ -119,7 +119,9 @@ module Mkxms::Mssql::Utils
       state_str = current_error_marker
       full_message = %Q{N'#{message.gsub("'", "''")} (search for "#{state_str}")'}
       trailing_args = ([state_str] + args.map(&:to_s)).join(', ')
-      %Q{RAISERROR (#{full_message}, #{severity}, #{trailing_args})}
+      %Q{RAISERROR (#{full_message}, #{severity}, #{trailing_args})}.tap do |stmt|
+        stmt.define_singleton_method(:error_marker) {state_str}
+      end
     end
     
     def current_error_marker

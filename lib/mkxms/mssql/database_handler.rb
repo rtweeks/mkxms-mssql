@@ -169,7 +169,7 @@ module Mkxms::Mssql
       create_migration(
         "check-clr-assemblies",
         "Check expected CLR assemblies have been created.",
-        joined_modobj_sql(clr_assemblies),
+        ClrAssembly.setup_sql + "\n" + joined_modobj_sql(clr_assemblies),
         clr_assemblies.map(&:name).sort
       )
       

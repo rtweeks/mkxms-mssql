@@ -18,6 +18,15 @@ module Mkxms::Mssql
     attr_reader :name, :error_stmt, :warning_stmt
     attr_accessor :lib_name, :owner, :access
     
+    def self.setup_sql
+      [].tap do |s|
+        s << "IF NOT EXISTS (SELECT * FROM sys.tables t WHERE t.object_id = OBJECT_ID(N'xmigra.ignored_clr_assemblies'))"
+        s << "    CREATE TABLE xmigra.ignored_clr_assemblies (name SYSNAME PRIMARY KEY);"
+        
+        s << "" # Give a newline at the end
+      end.join("\n")
+    end
+    
     def to_sql
       [].tap do |s|
         s << "IF NOT EXISTS ("
@@ -25,6 +34,10 @@ module Mkxms::Mssql
         s << "  FROM sys.assemblies asm"
         s << "  WHERE asm.is_visible = 1"
         s << "  AND QUOTENAME(asm.name) = #{name.sql_quoted}"
+        s << "  UNION ALL"
+        s << "  SELECT asm.name"
+        s << "  FROM xmigra.ignored_clr_assemblies asm"
+        s << "  WHERE asm.name = #{name.sql_quoted}"
         s << ") #{error_stmt};"
         
         s << "IF NOT EXISTS ("
@@ -33,7 +46,7 @@ module Mkxms::Mssql
         s << "  JOIN sys.database_principals owner ON asm.principal_id = owner.principal_id" if owner
         s << "  WHERE asm.is_visible = 1"
         s << "  AND QUOTENAME(asm.name) = #{name.sql_quoted}"
-        s << "  -- Run the query up to this point for assembly configuration --"
+        s << "  -- #{warning_stmt.error_marker} Run the query up to this point for assembly configuration --"
         cols = [
           ["owner", owner],
           ["permission_set", access],
@@ -44,6 +57,10 @@ module Mkxms::Mssql
         s << "  AND QUOTENAME(owner.name) = #{owner.sql_quoted}" if owner
         s << "  AND REPLACE(LOWER(asm.permission_set_desc), '_', '-') = #{access.sql_quoted}"
         s << "  AND asm.clr_name = #{lib_name.sql_quoted}"
+        s << "  UNION ALL"
+        s << "  SELECT asm.name, NULL, NULL, NULL"
+        s << "  FROM xmigra.ignored_clr_assemblies asm"
+        s << "  WHERE asm.name = #{name.sql_quoted}"
         s << ") #{warning_stmt};"
         
         s << "" # Gives a newline at the end
