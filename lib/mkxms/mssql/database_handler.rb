@@ -7,6 +7,7 @@ require 'yaml'
 
   adoption_script_writer
   check_constraint_handler
+  clr_assembly_handler
   default_constraint_handler
   dml_trigger_handler
   filegroup_handler
@@ -49,7 +50,13 @@ module Mkxms::Mssql
     end
     
     attr_reader :schema_dir
-    attr_init(:filegroups, :schemas, :roles, :tables, :column_defaults, :pku_constraints, :foreign_keys, :check_constraints, :dml_triggers){[]}
+    attr_init(
+      :filegroups, :schemas, :roles,
+      :clr_assemblies,
+      :tables,
+      :column_defaults, :pku_constraints, :foreign_keys,
+      :check_constraints, :dml_triggers,
+    ){[]}
     attr_init(:indexes, :statistics){[]}
     attr_init(:views, :udfs, :procedures){[]}
     attr_init(:permissions){[]}
@@ -126,7 +133,7 @@ module Mkxms::Mssql
     end
     
     def handle_clr_assembly_element(parse)
-      parse.delegate_to IgnoreText
+      parse.delegate_to ClrAssemblyHandler, clr_assemblies
     end
     
     def handle_clr_type_element(parse)
@@ -157,6 +164,14 @@ module Mkxms::Mssql
       end
       
       # TODO: Create migration to check required filegroups and files
+      
+      # Migration: Check CLR assemblies
+      create_migration(
+        "check-clr-assemblies",
+        "Check expected CLR assemblies have been created.",
+        joined_modobj_sql(clr_assemblies),
+        clr_assemblies.map(&:name).sort
+      )
       
       # Migration: Create roles
       create_migration(
