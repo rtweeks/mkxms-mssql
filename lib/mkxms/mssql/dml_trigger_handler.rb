@@ -7,6 +7,7 @@ module Mkxms::Mssql
     extend Utils::InitializedAttributes
     include ExtendedProperties, Property::Hosting, Property::SchemaScoped
     include Utils::SchemaQualifiedName
+    include XMigra::MSSQLSpecifics
     
     def initialize(schema, name, timing)
       @schema = schema
@@ -19,7 +20,11 @@ module Mkxms::Mssql
     attr_init(:definition) {""}
     
     def to_sql
-      definition
+      if (ep_sql = extended_properties_sql).empty?
+        definition
+      else
+        definition + ddl_block_separator + ep_sql.joined_on_new_lines
+      end
     end
   end
   

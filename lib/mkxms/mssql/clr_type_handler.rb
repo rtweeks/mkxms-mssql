@@ -5,6 +5,7 @@ module Mkxms; end
 module Mkxms::Mssql
   class ClrType
     include Utils::SchemaQualifiedName
+    include ExtendedProperties, Property::Hosting, Property::SchemaScoped
     
     RaiserrorSource = Utils::RaiserrorWriter.new("%s: Missing or misconfigured CLR type %s")
     
@@ -41,7 +42,10 @@ module Mkxms::Mssql
         s << "  FROM xmigra.ignored_clr_types t"
         s << "  WHERE t.[schema] = #{schema.sql_quoted}"
         s << "  AND t.name = #{name.sql_quoted}"
-        s << ") CREATE TYPE #{schema}.#{name} EXTERNAL NAME #{assembly}.#{clr_class};"
+        s << ") BEGIN"
+        s << "  CREATE TYPE #{schema}.#{name} EXTERNAL NAME #{assembly}.#{clr_class};"
+        s.concat(extended_properties_sql.map {|s| "  " + s})
+        s << "END"
         
         s << "IF NOT EXISTS ("
         s << "  SELECT CONCAT(s.name, N'.', t.name) as clr_type, QUOTENAME(asm.name) as assembly, QUOTENAME(t.assembly_class) as clr_class"
@@ -72,6 +76,8 @@ module Mkxms::Mssql
   end
   
   class ClrTypeHandler
+    include PropertyHandler::ElementHandler
+    
     def initialize(types, node)
       a = node.attributes
       

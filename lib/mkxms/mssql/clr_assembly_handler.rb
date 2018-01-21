@@ -4,6 +4,8 @@ module Mkxms; end
 
 module Mkxms::Mssql
   class ClrAssembly
+    include ExtendedProperties
+    
     RaiserrorSource = Utils::RaiserrorWriter.new("%s: Missing or misconfigured assembly %s")
     
     def initialize(name, lib_name = "", access:, owner: nil)
@@ -69,6 +71,8 @@ module Mkxms::Mssql
   end
   
   class ClrAssemblyHandler
+    include PropertyHandler::ElementHandler
+    
     def initialize(assemblies, node)
       a = node.attributes
       
