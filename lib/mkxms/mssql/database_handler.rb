@@ -8,6 +8,7 @@ require 'yaml'
   adoption_script_writer
   check_constraint_handler
   clr_assembly_handler
+  clr_type_handler
   default_constraint_handler
   dml_trigger_handler
   filegroup_handler
@@ -52,7 +53,7 @@ module Mkxms::Mssql
     attr_reader :schema_dir
     attr_init(
       :filegroups, :schemas, :roles,
-      :clr_assemblies,
+      :clr_assemblies, :clr_types,
       :tables,
       :column_defaults, :pku_constraints, :foreign_keys,
       :check_constraints, :dml_triggers,
@@ -137,7 +138,7 @@ module Mkxms::Mssql
     end
     
     def handle_clr_type_element(parse)
-      
+      parse.delegate_to ClrTypeHandler, clr_types
     end
     
     def handle_dml_trigger_element(parse)
@@ -187,6 +188,14 @@ module Mkxms::Mssql
         "Create schemas for containing database objects and controlling access.",
         joined_modobj_sql(schemas, sep: "\nGO\n"),
         schemas.map(&:name).sort
+      )
+      
+      # Migration: Create CLR types that don't exist
+      create_migration(
+        "create-clr-types",
+        "Create CLR types (unless already existing).",
+        ClrType.setup_sql + "\n" + joined_modobj_sql(clr_types),
+        clr_types.map(&:qualified_name).sort
       )
       
       tables.each do |table|
