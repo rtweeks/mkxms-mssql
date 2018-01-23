@@ -1,6 +1,7 @@
 require 'pathname'
 require 'psych' # YAML support
 require 'xmigra'
+require 'mkxms/mssql/keywords'
 
 module Mkxms; end
 
@@ -51,10 +52,17 @@ module Mkxms::Mssql
       # Columns (including single-column default constraints)
       table.elements.each('column') do |column|
         entry = Psych::Nodes::Mapping.new.tap {|e| columns_decl.children << e}
+        col_name = column.attributes['name']
+        if col_name =~ /^\[[a-zA-Z_][a-zA-Z0-9_]*\]$/ && !KEYWORDS_SET.include?(col_name[1..-2].upcase)
+          col_name = col_name[1..-2]
+        end
         entry.children.concat(
-          ['name', column.attributes['name']].map {|v| node_from(v)}
+          ['name', col_name].map {|v| node_from(v)}
         )
         col_type = column.attributes['type']
+        if KEYWORDS_SET.include?(basic_type = col_type[1..-2].upcase)
+          col_type = basic_type
+        end
         if capacity = column.attributes['capacity']
           col_type = "#{col_type}(#{capacity})"
         end
