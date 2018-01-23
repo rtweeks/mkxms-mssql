@@ -44,12 +44,18 @@ module Mkxms::Mssql
           # Create an error table
           :create_adoption_error_table_sql,
           
+          # Check CLR assemblies
+          :check_clr_assemblies,
+          
           # Check roles
           :check_expected_roles_exist_sql,
           :check_expected_role_membership_sql,
           
           # Check schemas
           :check_expected_schemas_exist_sql,
+          
+          # Check CLR types
+          :check_clr_types,
           
           # Check tables (including columns)
           :check_tables_exist_and_structured_as_expected_sql,
@@ -65,6 +71,9 @@ module Mkxms::Mssql
           
           # Check check constraints
           :check_check_constraints_sql,
+          
+          # Check DML triggers
+          :check_dml_triggers,
           
           # Adopt indexes
           :adopt_indexes_sql,
@@ -114,7 +123,7 @@ module Mkxms::Mssql
           )
           BEGIN
             DROP TABLE [xmigra].[adoption_errors];
-          END;
+          END
           GO
           
           CREATE TABLE [xmigra].[adoption_errors] (
@@ -135,9 +144,51 @@ module Mkxms::Mssql
           BEGIN
             SELECT * FROM [xmigra].[adoption_errors];
             RAISERROR (N'Database adoption failed.', 11, 1);
-          END;
+          END
           
           DROP TABLE [xmigra].[adoption_errors];
+        }
+      end
+    end
+    
+    def check_clr_assemblies
+      db_expectations.clr_assemblies.map do |asm|
+        dedent %Q{
+          IF NOT EXISTS (
+            SELECT * FROM sys.assemblies asm
+            WHERE asm.is_visible = 1 AND QUOTENAME(asm.name) = #{asm.name.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "CLR assembly #{asm.name} does not exist."}
+          END
+          
+          IF NOT EXISTS (
+            SELECT * FROM sys.assemblies asm
+            JOIN sys.database_principals owner ON asm.principal_id = owner.principal_id
+            WHERE asm.is_visible = 1 AND QUOTENAME(asm.name) = #{asm.name.sql_quoted}
+            AND QUOTENAME(owner.name) = #{asm.owner.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "CLR assembly #{asm.name} should be owned by #{asm.owner}"}
+          END
+          
+          IF NOT EXISTS (
+            SELECT * FROM sys.assemblies asm
+            WHERE asm.is_visible = 1 AND QUOTENAME(asm.name) = #{asm.name.sql_quoted}
+            AND REPLACE(LOWER(asm.permission_set_desc), '_', '-') = #{asm.access.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "CLR assembly #{asm.name} should have permission set #{asm.access}"}
+          END
+          
+          IF NOT EXISTS (
+            SELECT * FROM sys.assemblies asm
+            WHERE asm.is_visible = 1 AND QUOTENAME(asm.name) = #{asm.name.sql_quoted}
+            AND asm.clr_name = #{asm.lib_name.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql %Q{CLR assembly #{asm.name} should reference library "#{asm.lib_name}".}}
+          END
         }
       end
     end
@@ -152,7 +203,7 @@ module Mkxms::Mssql
           )
           BEGIN
             #{adoption_error_sql "Role #{r.name} does not exist."}
-          END;
+          END
           
           IF EXISTS (
             SELECT * FROM sys.database_principals r
@@ -162,7 +213,7 @@ module Mkxms::Mssql
           )
           BEGIN
             #{adoption_error_sql "Role #{r.name} should be owned by #{r.owner}."}
-          END;
+          END
         }
       end.join("\n")
     end
@@ -181,7 +232,7 @@ module Mkxms::Mssql
               )
               BEGIN
                 #{adoption_error_sql "Role #{r.name} should be a member of #{er_name}."}
-              END;
+              END
             })
           end
         end
@@ -205,7 +256,43 @@ module Mkxms::Mssql
           )
           BEGIN
             #{adoption_error_sql "Schema #{schema.name} is not owned by #{schema.owner}."}
-          END;
+          END
+        }
+      end
+    end
+    
+    def check_clr_types
+      db_expectations.clr_types.map do |t|
+        dedent %Q{
+          IF NOT EXISTS (
+            SELECT * FROM sys.assembly_types t
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE QUOTENAME(s.name) = #{t.schema.sql_quoted} AND QUOTENAME(t.name) = #{t.name.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "CLR type #{t.qualified_name} does not exist."}
+          END
+          
+          IF NOT EXISTS (
+            SELECT * FROM sys.assembly_types t
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            JOIN sys.assemblies asm ON t.assembly_id = asm.assembly_id
+            WHERE QUOTENAME(s.name) = #{t.schema.sql_quoted} AND QUOTENAME(t.name) = #{t.name.sql_quoted}
+            AND QUOTENAME(asm.name) = #{t.assembly.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "CLR type #{t.qualified_name} does not reference assembly #{t.assembly}."}
+          END
+          
+          IF NOT EXISTS (
+            SELECT * FROM sys.assembly_types t
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE QUOTENAME(s.name) = #{t.schema.sql_quoted} AND QUOTENAME(t.name) = #{t.name.sql_quoted}
+            AND QUOTENAME(t.assembly_class) = #{t.clr_class.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "CLR type #{t.qualified_name} does not reference class #{t.clr_class} of #{t.assembly}."}
+          END
         }
       end
     end
@@ -266,7 +353,7 @@ module Mkxms::Mssql
               end
             )
           }
-          puts "END;"
+          puts "END"
           puts
         }
         QueryCursor.new(
@@ -322,11 +409,11 @@ module Mkxms::Mssql
             indented {
               puts error_sql "Column #{column.name} not found in expected position in #{table_id}."
             }
-            puts "END;"
+            puts "END"
           }
-          puts "END;"
+          puts "END"
           puts "IF @column_id IS NOT NULL"
-          puts "BEGIN".."END;" do
+          puts "BEGIN".."END" do
             add_column_properties_test(column)
           end
         }
@@ -342,13 +429,13 @@ module Mkxms::Mssql
           conditions << %Q{c.is_computed = 1}
           conditions << compose_sql {
             puts "EXISTS (SELECT * FROM sys.computed_columns cc WHERE %s)" do
-              puts "AND cc.object_id = c.object_id"
+              puts "cc.object_id = c.object_id"
               puts "AND cc.column_id = c.column_id"
               puts "AND cc.definition = %s" do
-                strlit(column.computed_expression)
+                puts strlit(column.computed_expression)
               end
               puts "AND %s" do
-                bit_test "cc.is_persisted", column.persisted?
+                puts(bit_test "cc.is_persisted", column.persisted?)
               end
             end
           }
@@ -401,7 +488,7 @@ module Mkxms::Mssql
             }
             conditions.each {|c| puts "AND " + c, :sub => nil}
           end
-          puts "BEGIN".."END;" do
+          puts "BEGIN".."END" do
             puts error_sql "Column #{column.name} of #{table_id} #{mismatch_message}"
           end
         }
@@ -449,11 +536,11 @@ module Mkxms::Mssql
                 puts strlit(unquoted_identifier col_dflt.name)
               end if col_dflt.name
             end
-            puts("BEGIN".."END;") {
+            puts("BEGIN".."END") {
               puts adoption_error_sql("Column default constraint #{constraint_id} does not have the expected definition.")
             }
           }
-          puts "END;"
+          puts "END"
         }
       end.join("\n")
     end
@@ -538,7 +625,7 @@ module Mkxms::Mssql
             
             check_column_sequence_end
           }
-          puts "END;"
+          puts "END"
         }
       end
       
@@ -587,17 +674,17 @@ module Mkxms::Mssql
               IF @constraint_match_error = 0
               BEGIN
                 SET @constraint_found = 1;
-              END;
+              END
             }
           }
-          puts "END;"
+          puts "END"
           puts dedent %Q{
             CLOSE constraint_cursor;
             DEALLOCATE constraint_cursor;
             
             IF @constraint_found = 0
           }
-          puts "BEGIN".."END;" do
+          puts "BEGIN".."END" do
             puts error_sql "Expected #{cnstr_id} does not exist."
           end
         }
@@ -625,7 +712,7 @@ module Mkxms::Mssql
             FETCH NEXT FROM column_cursor INTO @column_name, @column_sorted_descending;
             IF @@FETCH_STATUS = 0
           }
-          puts "BEGIN".."END;" do
+          puts "BEGIN".."END" do
             puts error_sql "#{cnstr_id.capitalize} has one or more unexpected columns."
           end
           puts "CLOSE column_cursor;"
@@ -659,7 +746,7 @@ module Mkxms::Mssql
           indented {
             yield "Column #{index_column.name} should be sorted #{index_column.direction} in #{cnstr_id}."
           }
-          puts "END;"
+          puts "END"
         }
       end
     end
@@ -909,7 +996,7 @@ module Mkxms::Mssql
           indented {
             puts error_sql "#{cnstr_id.capitalize} does not have expected definition."
           }
-          puts "END;"
+          puts "END"
         }
       end
       
@@ -926,7 +1013,7 @@ module Mkxms::Mssql
               AND cc.definition = #{strlit cnstr.definition}
             }
           end
-          puts "BEGIN".."END;" do
+          puts "BEGIN".."END" do
             puts error_sql "Expected #{cnstr_id} does not exist."
           end
         }
@@ -937,6 +1024,186 @@ module Mkxms::Mssql
       db_expectations.check_constraints.map do |cnstr|
         CheckConstraintAdoptionChecks.new(cnstr, method(:adoption_error_sql)).to_s
       end # Do not join -- each needs a separate batch (they use variables)
+    end
+    
+    class DmlTriggerAdoptionChecks < IndentedStringBuilder
+      include SqlStringManipulators
+      
+      def initialize(trigger, tools)
+        super()
+        
+        @tools = tools
+        @trigger = trigger
+        
+        add_trigger_tests
+      end
+      
+      attr_reader :trigger
+      
+      def error_sql(s)
+        @tools.adoption_error_sql(s)
+      end
+      
+      def check_definition_is(*args)
+        @tools.definition_matches_by_hash(*args)
+      end
+      
+      def add_trigger_tests
+        dsl {
+          puts "IF NOT EXISTS (%s)" do
+            puts dedent %Q{
+              SELECT * FROM sys.triggers tgr
+              JOIN sys.objects o ON tgr.object_id = o.object_id
+              JOIN sys.schemas s ON o.schema_id = s.schema_id
+              WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
+              AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
+            }
+          end
+          puts "BEGIN".."END" do
+            puts error_sql "Expected trigger #{trigger.qualified_name} does not exist."
+          end
+          
+          puts "IF NOT EXISTS (%s)" do
+            puts dedent %Q{
+              SELECT * FROM sys.triggers tgr
+              JOIN sys.objects o ON tgr.object_id = o.object_id
+              JOIN sys.schemas s ON o.schema_id = s.schema_id
+              JOIN sys.tables t ON tgr.parent_id = t.object_id
+              JOIN sys.schemas ts ON t.schema_id = ts.schema_id
+              WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
+              AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
+              AND QUOTENAME(ts.name) = #{trigger.table.schema.sql_quoted}
+              AND QUOTENAME(t.name) = #{trigger.table.name.sql_quoted}
+            }
+          end
+          puts "BEGIN".."END" do
+            puts error_sql "Trigger #{trigger.qualified_name} does not apply to table #{trigger.table.qualified_name}."
+          end
+          
+          puts "IF NOT EXISTS (%s)" do
+            execution_identity_test = (if trigger.execute_as == 'OWNER'
+              "sql.execute_as_principal_id = -2"
+            elsif trigger.execute_as
+              "QUOTENAME(p.name) = #{trigger.execute_as.sql_quoted}"
+            else
+              "sql.execute_as_principal_id IS NULL"
+            end)
+            
+            puts dedent %Q{
+              SELECT * FROM sys.triggers tgr
+              JOIN sys.objects o ON tgr.object_id = o.object_id
+              JOIN sys.schemas s ON o.schema_id = s.schema_id
+              JOIN sys.sql_modules sql ON tgr.object_id = sql.object_id
+              LEFT JOIN sys.database_principals p ON p.principal_id = sql.execute_as_principal_id
+              WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
+              AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
+              AND #{execution_identity_test}
+            }
+          end
+          puts "BEGIN".."END" do
+            if trigger.execute_as == 'OWNER'
+              puts error_sql "Trigger #{trigger.qualified_name} does not execute as its owner."
+            elsif trigger.execute_as
+              puts error_sql "Trigger #{trigger.qualified_name} does not execute as #{trigger.execute_as}."
+            else
+              puts error_sql "Trigger #{trigger.qualified_name} does not execute as caller."
+            end
+          end
+          
+          puts "IF NOT EXISTS (%s)" do
+            is_instead_of_trigger_value = (trigger.timing.downcase == "after") ? 0 : 1
+            
+            puts dedent %Q{
+              SELECT * FROM sys.triggers tgr
+              JOIN sys.objects o ON tgr.object_id = o.object_id
+              JOIN sys.schemas s ON o.schema_id = s.schema_id
+              WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
+              AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
+              AND tgr.is_instead_of_trigger = #{is_instead_of_trigger_value}
+            }
+          end
+          puts "BEGIN".."END" do
+            puts error_sql %Q{Trigger #{trigger.qualified_name} must occur #{trigger.timing} the handled event(s).}
+          end
+          
+          puts "IF NOT EXISTS (%s)" do
+            puts dedent %Q{
+              SELECT * FROM sys.triggers tgr
+              JOIN sys.objects o ON tgr.object_id = o.object_id
+              JOIN sys.schemas s ON o.schema_id = s.schema_id
+              WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
+              AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
+            }
+            trigger.events.each do |ev|
+              puts dedent %Q{
+                AND EXISTS (
+                  SELECT *
+                  FROM sys.events ev
+                  WHERE ev.object_id = tgr.object_id
+                  AND ev.type_desc = #{ev.sql_quoted}
+                )
+              }
+            end
+          end
+          puts "BEGIN".."END" do
+            puts error_sql %Q{Trigger #{trigger.qualified_name} must occur #{trigger.timing.downcase} #{trigger.events.join(' and ')}.}
+          end
+          
+          puts "IF NOT EXISTS (%s)" do
+            is_not_for_replication_value = trigger.not_replicable ? 1 : 0
+            
+            puts dedent %Q{
+              SELECT * FROM sys.triggers tgr
+              JOIN sys.objects o ON tgr.object_id = o.object_id
+              JOIN sys.schemas s ON o.schema_id = s.schema_id
+              WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
+              AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
+              AND tgr.is_not_for_replication = #{is_not_for_replication_value}
+            }
+          end
+          puts "BEGIN".."END" do
+            puts error_sql %Q{Trigger #{trigger.qualified_name} must#{' not' unless trigger.not_replicable} be configured "NOT FOR REPLICATION".}
+          end
+          
+          puts "IF NOT EXISTS (%s)" do
+            is_disabled_value = trigger.disabled ? 1 : 0
+            
+            puts dedent %Q{
+              SELECT * FROM sys.triggers tgr
+              JOIN sys.objects o ON tgr.object_id = o.object_id
+              JOIN sys.schemas s ON o.schema_id = s.schema_id
+              WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
+              AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
+              AND tgr.is_disabled = #{is_disabled_value}
+            }
+          end
+          puts "BEGIN".."END" do
+            puts error_sql "Trigger #{trigger.qualified_name} must#{' not' unless trigger.disabled} be disabled."
+          end
+          
+          # Check definition
+          puts "IF NOT EXISTS (%s)" do
+            puts dedent %Q{
+              SELECT * FROM sys.triggers tgr
+              JOIN sys.objects o ON tgr.object_id = o.object_id
+              JOIN sys.schemas s ON o.schema_id = s.schema_id
+              JOIN sys.sql_modules sql ON tgr.object_id = sql.object_id
+              WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
+              AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
+              AND #{check_definition_is("sql.definition", trigger.definition)}
+            }
+          end
+          puts "BEGIN".."END" do
+            puts error_sql "Trigger #{trigger.qualified_name} does not have the expected definition."
+          end
+        }
+      end
+    end
+    
+    def check_dml_triggers
+      db_expectations.dml_triggers.map do |tgr|
+        DmlTriggerAdoptionChecks.new(tgr, self).to_s
+      end
     end
     
     class IndexAdoptionChecks < IndentedStringBuilder
@@ -988,7 +1255,7 @@ module Mkxms::Mssql
           # Key columns
           QueryCursor.new(
             dedent(%Q{
-              SELECT c.column_name, ic.is_descending_key
+              SELECT c.name, ic.is_descending_key
               FROM sys.index_columns ic
               JOIN sys.columns c 
                 ON ic.object_id = c.object_id 
@@ -1012,29 +1279,31 @@ module Mkxms::Mssql
                 indented {
                   puts error_sql "Expected #{column.name} as column #{i + 1} in #{index_id}."
                 }
-                puts "END ELSE IF #{bit_test('@is_sorted_descending', column.direction == :descending)}"
+                puts "END ELSE IF #{bit_test('@is_sorted_descending', column.direction != :descending)}"
+                puts "BEGIN"
                 indented {
                   puts error_sql "Expected #{column.name} to be sorted #{column.direction} in #{index_id}."
                 }
-                puts "END;"
+                puts "END"
               }
             end
           end
           
           # Included columns
-          included_column_names = index.included_columns.map {|c| c.name}
-          puts "IF (%s) < #{included_column_names.length}" do
-            puts dedent %Q{
-              SELECT COUNT(*) FROM sys.index_columns ic
-              JOIN sys.columns c ON ic.object_id = c.object_id AND ic.index_id = c.index_id
-              WHERE ic.object_id = @relation_id
-              AND ic.index_id = @index_id
-              AND ic.key_ordinal = 0
-              AND QUOTENAME(c.name) IN (#{included_column_names.map {|s| strlit s}.join(', ')})
-            }
-          end
-          puts "BEGIN".."END" do
-            puts error_sql "#{index_id.capitalize} is missing one or more expected included columns."
+          unless (included_column_names = index.included_columns.map {|c| c.name}).empty?
+            puts "IF (%s) < #{included_column_names.length}" do
+              puts dedent %Q{
+                SELECT COUNT(*) FROM sys.index_columns ic
+                JOIN sys.columns c ON ic.object_id = c.object_id AND ic.column_id = c.column_id
+                WHERE ic.object_id = @relation_id
+                AND ic.index_id = @index_id
+                AND ic.key_ordinal = 0
+                AND QUOTENAME(c.name) IN (#{included_column_names.map {|s| strlit s}.join(', ')})
+              }
+            end
+            puts "BEGIN".."END" do
+              puts error_sql "#{index_id.capitalize} is missing one or more expected included columns."
+            end
           end
         }
         
@@ -1043,7 +1312,7 @@ module Mkxms::Mssql
       
       def index_property_check(expectation, expectation_desc)
         %Q{
-          IF NOT EXIST (
+          IF NOT EXISTS (
             SELECT * FROM sys.indexes i
             WHERE i.object_id = @relation_id
             AND i.index_id = @index_id
@@ -1051,7 +1320,7 @@ module Mkxms::Mssql
           )
           BEGIN
             #{error_sql "#{@index_id.capitalize} should #{expectation_desc}."}
-          END;
+          END
         }.strip.gsub(/\s+/, ' ')
       end
       
@@ -1133,7 +1402,7 @@ module Mkxms::Mssql
               end
             end
           }
-          puts "END;"
+          puts "END"
         }
       end
       
@@ -1158,8 +1427,23 @@ module Mkxms::Mssql
       "INSERT INTO [xmigra].[access_objects] ([type], [name]) VALUES (N'#{type}', #{strlit qualified_name});"
     end
     
-    def definition_matches_by_hash(expr, definition)
-      "HASHBYTES('md5', #{expr}) = 0x#{Digest::MD5.hexdigest definition.gsub("\n", "\r\n").encode('UTF-16LE')}"
+    # *indent* gives indentation for 2nd and later lines, or may be +false+ to
+    # put all hash comparisons on the same line
+    #
+    # *** NEW IMPLEMENTATION IGNORES WHITESPACE WHEN COMPARING FUNCTION DEFINITIONS ***
+    def definition_matches_by_hash(expr, definition, indent: '  ')
+      digest_alg = Digest::MD5
+      defn_reduced = definition.gsub(/\r|\n| /, "").encode(Encoding::UTF_16LE)
+      (0..defn_reduced.length).step(4000).map do |start|
+        begin
+          digest_alg.hexdigest(defn_reduced[start, 4000])
+        rescue Exception
+          require 'pry'; binding.pry unless $STOP_PRYING || ($STOP_PRYING_FOR || {})[:context]
+          raise
+        end
+        hash = digest_alg.hexdigest(defn_reduced[start, 4000])
+        "HASHBYTES('md5', SUBSTRING(REPLACE(REPLACE(REPLACE(#{expr}, NCHAR(10), ''), NCHAR(13), ''), ' ', ''), #{start + 1}, 4000)) = 0x#{hash}"
+      end.join("#{indent ? "\n" + indent : ' '}AND ")
     end
     
     def adopt_views_sql
@@ -1191,7 +1475,7 @@ module Mkxms::Mssql
           indented {
             puts adoption_error_sql "View #{view.qualified_name} does not have the expected definition."
           }
-          puts "END;"
+          puts "END"
           puts access_object_adoption_sql(:VIEW, view.qualified_name)
         }
       end
@@ -1226,7 +1510,7 @@ module Mkxms::Mssql
           indented {
             puts adoption_error_sql "Stored procedure #{sproc.qualified_name} does not have the expected definition."
           }
-          puts "END;"
+          puts "END"
           puts access_object_adoption_sql(:PROCEDURE, sproc.qualified_name)
         }
       end
@@ -1262,7 +1546,7 @@ module Mkxms::Mssql
           indented {
             puts adoption_error_sql "Function #{udf.qualified_name} does not have the expected definition."
           }
-          puts "END;"
+          puts "END"
           puts access_object_adoption_sql(:FUNCTION, udf.qualified_name)
         }
       end
