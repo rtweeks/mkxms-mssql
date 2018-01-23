@@ -166,6 +166,12 @@ class << Mkxms::Mssql::Utils
       l
     end.join('')
   end
+  
+  def dry_run?
+    @dry_run.tap do |v|
+      (break @dry_run = !!(ENV.fetch('DRY_RUN', '') =~ /^(y(es)?|t(rue)?|1)$/i)) if v.nil?
+    end
+  end
 end
 
 class String

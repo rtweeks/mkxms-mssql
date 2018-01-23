@@ -3,6 +3,7 @@ require 'xmigra'
 require 'mkxms/mssql/indented_string_builder'
 require 'mkxms/mssql/query_cursor'
 require 'mkxms/mssql/sql_string_manipulators'
+require 'mkxms/mssql/utils'
 
 module Mkxms; end
 
@@ -20,13 +21,17 @@ module Mkxms::Mssql
     attr_reader :db_expectations
     
     def create_script(path)
+      if Utils.dry_run?
+        base, _, ext = path.to_s.rpartition('.')
+        path = [base, 'dry-run', ext].join('.')
+      end
       Pathname(path).open('w') do |script|
         script.puts adoption_sql
       end
     end
     
     def adoption_sql
-      in_ddl_transaction do
+      in_ddl_transaction(dry_run: Utils.dry_run?) do
         script_parts = [
           # Check for blatantly incorrect application of script, e.g. running
           # on master or template database.

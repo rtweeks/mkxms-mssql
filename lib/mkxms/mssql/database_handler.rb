@@ -37,6 +37,7 @@ module Mkxms::Mssql
     include ExtendedProperties, PropertyHandler::ElementHandler
     
     ADOPTION_SQL_FILE = "adopt.sql"
+    DRY_RUN_MARKER = "for dry run"
     
     class IgnoreText
       def initialize(node)
@@ -149,7 +150,12 @@ module Mkxms::Mssql
       dbinfo_path = @schema_dir.join(XMigra::SchemaManipulator::DBINFO_FILE)
       
       if dbinfo_path.exist?
-        raise ProgramArgumentError.new("#{@schema_dir} already contains an XMigra schema")
+        if dbinfo_path.open {|f| YAML.load(f)[DRY_RUN_MARKER]}
+          # Delete everything in the source files, so we can do a dry run over
+          @schema_dir.each_child {|e| e.rmtree}
+        else
+          raise ProgramArgumentError.new("#{@schema_dir} already contains an XMigra schema")
+        end
       end
       
       # TODO: Sort dependencies of triggers, views, user defined functions, and
@@ -162,6 +168,9 @@ module Mkxms::Mssql
       # Create and populate @schema_dir + XMigra::SchemaManipulator::DBINFO_FILE
       dbinfo_path.open('w') do |dbi|
         dbi.puts "system: #{XMigra::MSSQLSpecifics::SYSTEM_NAME}"
+        if Utils.dry_run?
+          dbi.puts "#{DRY_RUN_MARKER}: true"
+        end
       end
       
       # TODO: Create migration to check required filegroups and files
