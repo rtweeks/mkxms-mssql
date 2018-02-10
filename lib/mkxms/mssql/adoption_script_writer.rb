@@ -1036,6 +1036,11 @@ module Mkxms::Mssql
         @trigger = trigger
         
         add_trigger_tests
+        if trigger.clr_impl
+          add_clr_impl_test
+        else
+          add_definition_test
+        end
       end
       
       attr_reader :trigger
@@ -1180,7 +1185,34 @@ module Mkxms::Mssql
           puts "BEGIN".."END" do
             puts error_sql "Trigger #{trigger.qualified_name} must#{' not' unless trigger.disabled} be disabled."
           end
-          
+        }
+      end
+      
+      def add_clr_impl_test
+        dsl {
+          # Check CLR implementation
+          puts "IF NOT EXISTS(%s)" do
+            puts dedent %Q{
+              SELECT * FROM sys.triggers tgr
+              JOIN sys.object o ON tgr.object_id = o.object_id
+              JOIN sys.schemas s ON o.schema_id = s.schema_id
+              JOIN sys.assembly_modules asmmod ON tgr.object_id = asmmod.object_id
+              JOIN sys.assemblies asm ON asmmod.assembly_id = asm.assembly_id
+              WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
+              AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
+              AND QUOTENAME(asm.name) = #{trigger.clr_impl.assembly}
+              AND QUOTENAME(asmmod.assembly_class) = #{trigger.clr_impl.asm_class}
+              AND QUOTENAME(asmmod.assembly_method) = #{trigger.clr_impl.method}
+            }
+          end
+          puts "BEGIN".."END" do
+            puts error_sql "Trigger #{trigger.qualified_name} does not invoke #{trigger.clr_impl.full_specifier}."
+          end
+        }
+      end
+      
+      def add_definition_test
+        dsl {
           # Check definition
           puts "IF NOT EXISTS (%s)" do
             puts dedent %Q{

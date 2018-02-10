@@ -1,3 +1,4 @@
+require 'mkxms/mssql/clr_impl'
 require 'mkxms/mssql/references_handler'
 require 'mkxms/mssql/utils'
 
@@ -20,12 +21,13 @@ module Mkxms::Mssql
       @not_replicable = not_replicable
     end
     
-    attr_accessor :schema, :name, :table, :timing, :execute_as, :disabled, :not_replicable
+    attr_accessor :schema, :name, :table, :timing, :execute_as, :disabled, :not_replicable, :clr_impl
     attr_init(:events) {[]}
     attr_init(:definition) {""}
     
     def to_sql
-      [definition.expand_tabs.gsub(/ +\n/, "\n")].tap do |result|
+      def_sql = clr_impl ? clr_definition : definition
+      [def_sql.expand_tabs.gsub(/ +\n/, "\n")].tap do |result|
         unless (ep_sql = extended_properties_sql).empty?
           result << ep_sql.joined_on_new_lines
         end
@@ -33,6 +35,22 @@ module Mkxms::Mssql
           result << "DISABLE TRIGGER #{qualified_name} ON #{table.qualified_name};"
         end
       end.join(ddl_block_separator)
+    end
+    
+    def clr_definition
+      [].tap do |lines|
+        lines << "CREATE TRIGGER #{schema}.#{name}"
+        lines << "ON #{table.qualified_name}"
+        case execute_as
+        when 'OWNER'
+          lines << "WITH EXECUTE AS OWNER"
+        when String
+          lines << "WITH EXECUTE AS #{execute_as.sql_quoted}"
+        end
+        lines << "#{timing} #{events.join(', ')}"
+        lines << "NOT FOR REPLICATION" if not_replicable
+        lines << "AS EXTERNAL NAME #{clr_impl.full_specifier};"
+      end.join("\n")
     end
   end
   
@@ -81,6 +99,12 @@ module Mkxms::Mssql
       when ['', 'do']
         @trigger.definition << text
       end
+    end
+    
+    # This function handles a CLR implementation
+    def handle_implementation_element(parse)
+      a = parse.node.attributes
+      @trigger.clr_impl = ClrMethod(a['assembly'], a['class'], a['method'])
     end
   end
 end
