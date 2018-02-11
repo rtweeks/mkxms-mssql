@@ -8,6 +8,7 @@ require 'yaml'
   adoption_script_writer
   check_constraint_handler
   clr_assembly_handler
+  clr_stored_procedure_handler
   clr_type_handler
   default_constraint_handler
   dml_trigger_handler
@@ -120,6 +121,10 @@ module Mkxms::Mssql
     
     def handle_stored_procedure_element(parse)
       parse.delegate_to StoredProcedureHandler, procedures
+    end
+    
+    def handle_clr_stored_procedure_element(parse)
+      parse.delegate_to ClrStoredProcedureHandler, procedures
     end
     
     def handle_user_defined_function_element(parse)

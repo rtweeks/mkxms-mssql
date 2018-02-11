@@ -1529,20 +1529,33 @@ module Mkxms::Mssql
             puts adoption_error_sql "Stored procedure #{sproc.qualified_name} does not exist."
           }
           puts "END ELSE IF NOT EXISTS (%s)" do
-            puts dedent %Q{
-              SELECT * FROM sys.procedures p
-              JOIN sys.schemas s ON p.schema_id = s.schema_id
-              JOIN sys.sql_modules sql ON p.object_id = sql.object_id
-              WHERE s.name = #{strlit(unquoted_identifier sproc.schema)}
-              AND p.name = #{strlit(unquoted_identifier sproc.name)}
-              AND #{definition_matches_by_hash('sql.definition', sproc.definition)}
+            if sproc.clr_impl
+              puts dedent %Q{
+                SELECT * FROM sys.objects sproc
+                JOIN sys.assembly_modules asmmod ON sproc.object_id = asmmod.object_id
+                JOIN sys.assemblies asm ON asmmod.assembly_id = asm.assembly_id
+                JOIN sys.schemas s ON sproc.schema_id = s.schema_id
+                WHERE sproc.type = 'PC'
+                AND QUOTENAME(asm.name) = #{sproc.clr_impl.assembly.sql_quoted}
+                AND QUOTENAME(asmmod.assembly_class) = #{sproc.clr_impl.asm_class.sql_quoted}
+                AND QUOTENAME(asmmod.assembly_method) = #{sproc.clr_impl.method.sql_quoted}
+              }
+            else
+              puts dedent %Q{
+                SELECT * FROM sys.procedures p
+                JOIN sys.schemas s ON p.schema_id = s.schema_id
+                JOIN sys.sql_modules sql ON p.object_id = sql.object_id
+                WHERE s.name = #{strlit(unquoted_identifier sproc.schema)}
+                AND p.name = #{strlit(unquoted_identifier sproc.name)}
+                AND #{definition_matches_by_hash('sql.definition', sproc.definition)}
+              }
+            end
+            puts "BEGIN"
+            indented {
+              puts adoption_error_sql "Stored procedure #{sproc.qualified_name} does not have the expected definition."
             }
+            puts "END"
           end
-          puts "BEGIN"
-          indented {
-            puts adoption_error_sql "Stored procedure #{sproc.qualified_name} does not have the expected definition."
-          }
-          puts "END"
           puts access_object_adoption_sql(:PROCEDURE, sproc.qualified_name)
         }
       end
