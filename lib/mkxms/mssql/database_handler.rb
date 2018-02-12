@@ -8,6 +8,7 @@ require 'yaml'
   adoption_script_writer
   check_constraint_handler
   clr_assembly_handler
+  clr_function_handler
   clr_stored_procedure_handler
   clr_type_handler
   default_constraint_handler
@@ -129,6 +130,10 @@ module Mkxms::Mssql
     
     def handle_user_defined_function_element(parse)
       parse.delegate_to FunctionHandler, udfs
+    end
+    
+    def handle_clr_function_element(parse)
+      parse.delegate_to ClrFunctionHandler, udfs
     end
     
     def handle_granted_element(parse)

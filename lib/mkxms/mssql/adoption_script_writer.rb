@@ -1570,7 +1570,7 @@ module Mkxms::Mssql
               JOIN sys.schemas s ON fn.schema_id = s.schema_id
               WHERE s.name = #{strlit(unquoted_identifier udf.schema)}
               AND fn.name = #{strlit(unquoted_identifier udf.name)}
-              AND fn.type IN ('FN', 'IF', 'TF')
+              AND fn.type IN ('FN', 'FS', 'FT', 'IF', 'TF')
             }
           end
           puts "BEGIN"
@@ -1578,14 +1578,28 @@ module Mkxms::Mssql
             puts adoption_error_sql "Function #{udf.qualified_name} does not exist."
           }
           puts "END ELSE IF NOT EXISTS (%s)" do
-            puts dedent %Q{
-              SELECT * FROM sys.objects fn
-              JOIN sys.schemas s ON fn.schema_id = s.schema_id
-              JOIN sys.sql_modules sql ON fn.object_id = sql.object_id
-              WHERE s.name = #{strlit(unquoted_identifier udf.schema)}
-              AND fn.name = #{strlit(unquoted_identifier udf.name)}
-              AND #{definition_matches_by_hash 'sql.definition', udf.definition}
-            }
+            if udf.clr_impl
+              puts dedent %Q{
+                SELECT * FROM sys.objects fn
+                JOIN sys.schemas s ON fn.schema_id = s.schema_id
+                JOIN sys.assembly_modules asmmod ON fn.object_id = asmmod.object_id
+                JOIN sys.assemblies asm ON asmmod.assembly_id = asm.assembly_id
+                WHERE QUOTENAME(s.name) = #{udf.schema.sql_quoted}
+                AND QUOTENAME(fn.name) = #{udf.name.sql_quoted}
+                AND QUOTENAME(asm.name) = #{udf.clr_impl.assembly.sql_quoted}
+                AND QUOTENAME(asmmod.assembly_class) = #{udf.clr_impl.asm_class.sql_quoted}
+                AND QUOTENAME(asmmod.assembly_method) = #{udf.clr_impl.method.sql_quoted}
+              }
+            else
+              puts dedent %Q{
+                SELECT * FROM sys.objects fn
+                JOIN sys.schemas s ON fn.schema_id = s.schema_id
+                JOIN sys.sql_modules sql ON fn.object_id = sql.object_id
+                WHERE s.name = #{strlit(unquoted_identifier udf.schema)}
+                AND fn.name = #{strlit(unquoted_identifier udf.name)}
+                AND #{definition_matches_by_hash 'sql.definition', udf.definition}
+              }
+            end
           end
           puts "BEGIN"
           indented {
