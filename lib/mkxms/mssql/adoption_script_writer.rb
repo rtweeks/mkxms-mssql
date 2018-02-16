@@ -57,6 +57,9 @@ module Mkxms::Mssql
           # Check CLR types
           :check_clr_types,
           
+          # Check CLR aggregates
+          :check_clr_aggregates,
+          
           # Check tables (including columns)
           :check_tables_exist_and_structured_as_expected_sql,
           
@@ -292,6 +295,84 @@ module Mkxms::Mssql
           )
           BEGIN
             #{adoption_error_sql "CLR type #{t.qualified_name} does not reference class #{t.clr_class} of #{t.assembly}."}
+          END
+        }
+      end
+    end
+    
+    def check_clr_aggregates
+      db_expectations.aggregates.map do |agg|
+        dedent %Q{
+          IF NOT EXISTS (
+            SELECT *
+            FROM sys.objects fn
+            JOIN sys.schemas s ON fn.schema_id = s.schema_id
+            WHERE fn.type = 'AF'
+            AND QUOTENAME(s.name) = #{agg.schema.sql_quoted}
+            AND QUOTENAME(fn.name) = #{agg.name.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "CLR aggregate #{agg.qualified_name} does not exist."}
+          END
+          
+          IF NOT EXISTS (
+            SELECT *
+            FROM sys.objects fn
+            JOIN sys.schemas s ON fn.schema_id = s.schema_id
+            JOIN sys.assemblies asm ON asmmod.assembly_id = asm.assembly_id
+            WHERE fn.type = 'AF'
+            AND QUOTENAME(s.name) = #{agg.schema.sql_quoted}
+            AND QUOTENAME(fn.name) = #{agg.name.sql_quoted}
+            AND QUOTENAME(asm.name) = #{agg.clr_impl.assembly.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "CLR aggregate #{agg.qualified_name} does not reference assembly #{agg.clr_impl.assembly}."}
+          END
+          
+          IF NOT EXISTS (
+            SELECT *
+            FROM sys.objects fn
+            JOIN sys.schemas s ON fn.schema_id = s.schema_id
+            JOIN sys.assembly_modules asmmod ON fn.object_id = asmmod.object_id
+            JOIN sys.assemblies asm ON asmmod.assembly_id = asm.assembly_id
+            WHERE fn.type = 'AF'
+            AND QUOTENAME(s.name) = #{agg.schema.sql_quoted}
+            AND QUOTENAME(fn.name) = #{agg.name.sql_quoted}
+            AND QUOTENAME(asm.name) = #{agg.clr_impl.assembly.sql_quoted}
+            AND QUOTENAME(asmmod.assembly_class) = #{agg.clr_impl.asm_class.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "CLR aggregate #{agg.qualified_name} does not reference class #{agg.clr_impl.asm_class} of #{agg.clr_impl.assembly}."}
+          END
+          
+          IF NOT EXISTS (
+            SELECT *
+            FROM sys.objects fn
+            JOIN sys.schemas s ON fn.schema_id = s.schema_id
+            JOIN sys.assembly_modules asmmod ON fn.object_id = asmmod.object_id
+            WHERE fn.type = 'AF'
+            AND QUOTENAME(s.name) = #{agg.schema.sql_quoted}
+            AND QUOTENAME(fn.name) = #{agg.name.sql_quoted}
+            AND asmmod.execute_as_principal_id #{
+              case agg.execute_as
+              when nil
+                'IS NULL'
+              when 'OWNER'
+                "= -2"
+              else
+                "= DATABASE_PRINCIPAL_ID(#{agg.execute_as.sql_quoted})"
+              end
+            }
+          )
+          BEGIN
+            #{adoption_error_sql "CLR aggregate #{agg.qualified_name} does not execute as #{
+              case agg.execute_as
+              when nil
+                'CALLER'
+              else
+                agg.execute_as
+              end
+            }."}
           END
         }
       end

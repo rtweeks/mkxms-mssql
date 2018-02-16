@@ -7,6 +7,7 @@ require 'yaml'
 
   adoption_script_writer
   check_constraint_handler
+  clr_aggregate_handler
   clr_assembly_handler
   clr_function_handler
   clr_stored_procedure_handler
@@ -62,7 +63,7 @@ module Mkxms::Mssql
       :check_constraints, :dml_triggers,
     ){[]}
     attr_init(:indexes, :statistics){[]}
-    attr_init(:views, :udfs, :procedures){[]}
+    attr_init(:views, :udfs, :procedures, :aggregates){[]}
     attr_init(:permissions){[]}
     
     def handle_database_element(parse)
@@ -134,6 +135,10 @@ module Mkxms::Mssql
     
     def handle_clr_function_element(parse)
       parse.delegate_to ClrFunctionHandler, udfs
+    end
+    
+    def handle_clr_aggregate_element(parse)
+      parse.delegate_to ClrArggregateHandler, aggregates
     end
     
     def handle_granted_element(parse)
@@ -301,6 +306,15 @@ module Mkxms::Mssql
       end
       
       write_statistics
+      
+      aggregates.each do |agg|
+        create_migration(
+          "register-#{agg.qualified_name}-aggregate",
+          "Register the CLR aggregate function #{agg.qualified_name}",
+          agg.to_sql.join("\nGO\n"),
+          [agg.schema, agg.qualified_name]
+        )
+      end
       
       views.each do |view|
         write_access_def(view, 'view')

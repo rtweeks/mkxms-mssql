@@ -11,17 +11,6 @@ module Mkxms::Mssql
     
     SQL_OBJECT_TYPE = 'FUNCTION'
     
-    # Used for scalar and result table column type specification
-    ResultType = Struct.new(:schema, :name, :capacity, :precision, :scale, :collation) do
-      def type_spec
-        [schema, name].compact.join('.').tap do |result|
-          result << "(#{capacity})" if capacity
-          result << "(#{[precision, scale].compact.join(', ')})"
-          result << " COLLATE #{collation}" if collation
-        end
-      end
-    end
-    
     class ResultTable
       extend Utils::InitializedAttributes
       
@@ -154,7 +143,7 @@ module Mkxms::Mssql
     
     def handle_returns_element(parse)
       a = parse.node.attributes
-      @function.returns = ClrFunction::ResultType.new(
+      @function.returns = ResultType.new(
         a['type-schema'],
         a['type'],
         a['capacity'],
@@ -171,7 +160,7 @@ module Mkxms::Mssql
       a = parse.node.attributes
       ClrFunction::ResultTable::Column.new(
         a['name'],
-        ClrFunction::ResultType.new(
+        ResultType.new(
           a['type-schema'],
           a['type'],
           a['capacity'],
