@@ -1319,6 +1319,37 @@ module Mkxms::Mssql
       end
     end
     
+    def check_synonyms
+      db_expectations.synonyms.map do |syn|
+        dedent %Q{
+          IF NOT EXISTS (
+            SELECT * FROM sys.synonyms syn
+            JOIN sys.schemas s ON syn.schema_id = s.schema_id
+            WHERE QUOTENAME(s.name) = #{syn.schema.sql_quoted}
+            AND QUOTENAME(syn.name) = #{syn.name.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "Synonym #{syn.qualified_name} does not exist."}
+          END
+          
+          IF NOT EXISTS (
+            SELECT * FROM sys.synonyms syn
+            JOIN sys.schemas s ON syn.schema_id = s.schema_id
+            WHERE QUOTENAME(s.name) = #{syn.schema.sql_quoted}
+            AND QUOTENAME(syn.name) = #{syn.name.sql_quoted}
+            AND (
+              OBJECT_ID(syn.base_object_name) IS NULL
+              OR
+              OBJECT_ID(syn.base_object_name) = OBJECT_ID(#{syn.referent.sql_quoted})
+            )
+          )
+          BEGIN
+            #{adoption_error_sql "Synonym #{syn.qualified_name} does not reference #{syn.referent}."}
+          END
+        }
+      end
+    end
+    
     class IndexAdoptionChecks < IndentedStringBuilder
       include SqlStringManipulators
       

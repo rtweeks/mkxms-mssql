@@ -25,6 +25,7 @@ require 'yaml'
   schema_handler
   statistics_handler
   stored_procedure_handler
+  synonym_handler
   table_handler
   unique_constraint_handler
   utils
@@ -61,6 +62,7 @@ module Mkxms::Mssql
       :tables,
       :column_defaults, :pku_constraints, :foreign_keys,
       :check_constraints, :dml_triggers,
+      :synonyms,
     ){[]}
     attr_init(:indexes, :statistics){[]}
     attr_init(:views, :udfs, :procedures, :aggregates){[]}
@@ -161,6 +163,10 @@ module Mkxms::Mssql
       parse.delegate_to DmlTriggerHandler, dml_triggers
     end
     
+    def handle_synonym_element(parse)
+      parse.delegate_to SynonymHandler, synonyms
+    end
+    
     def create_source_files
       dbinfo_path = @schema_dir.join(XMigra::SchemaManipulator::DBINFO_FILE)
       
@@ -212,6 +218,14 @@ module Mkxms::Mssql
         "Create schemas for containing database objects and controlling access.",
         joined_modobj_sql(schemas, sep: "\nGO\n"),
         schemas.map(&:name).sort
+      )
+      
+      # Migration: Create synonyms
+      create_migration(
+        "create-synonyms",
+        "Create synonyms for other objects in the database.",
+        joined_modobj_sql(synonyms),
+        synonyms.map {|s| [s.schema, s.qualified_name]}.flatten
       )
       
       # Migration: Create CLR types that don't exist
