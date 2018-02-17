@@ -54,6 +54,9 @@ module Mkxms::Mssql
           # Check schemas
           :check_expected_schemas_exist_sql,
           
+          # Check user-defined types
+          :check_user_defined_types_sql,
+          
           # Check CLR types
           :check_clr_types,
           
@@ -259,6 +262,62 @@ module Mkxms::Mssql
           )
           BEGIN
             #{adoption_error_sql "Schema #{schema.name} is not owned by #{schema.owner}."}
+          END
+        }
+      end
+    end
+    
+    def check_user_defined_types_sql
+      db_expectations.types.map do |t|
+        dedent %Q{
+          IF NOT EXISTS (
+            SELECT * FROM sys.types t
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE QUOTENAME(s.name) = #{t.schema.sql_quoted}
+            AND QUOTENAME(t.name) = #{t.name.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "User-defined scalar type #{t.qualified_name} is not defined."}
+          END
+          
+          IF NOT EXISTS (
+            SELECT * FROM sys.types t
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE t.is_user_defined <> 0
+            AND t.is_assembly_type = 0
+            AND t.system_type_id NOT IN (
+              SELECT st.user_type_id
+              FROM sys.types st
+            )
+            AND QUOTENAME(s.name) = #{t.schema.sql_quoted}
+            AND QUOTENAME(t.name) = #{t.name.sql_quoted}
+          )
+          BEGIN
+            #{adoption_error_sql "#{t.qualified_name} is not a user-defined scalar type."}
+          END
+          
+          IF NOT EXISTS (
+            SELECT * FROM sys.types t
+            JOIN sys.schemas s ON t.schema_id = s.schema_id
+            JOIN sys.types bt ON t.system_type_id = bt.user_type_id
+            WHERE t.is_user_defined <> 0
+            AND QUOTENAME(s.name) = #{t.schema.sql_quoted}
+            AND QUOTENAME(t.name) = #{t.name.sql_quoted}
+            AND QUOTENAME(bt.name) = #{t.base_type.sql_quoted}
+            AND t.nullable #{t.nullable? ? "<>" : "="} 0
+            #{
+              case t.capacity
+              when 'max'
+                "AND t.max_length = -1"
+              when Integer
+                "AND t.max_length = #{t.element_size * t.capacity}"
+              end
+            }
+            #{"AND t.precision = #{t.precision}" if t.precision}
+            #{"AND t.scale = #{t.scale}" if t.scale}
+          )
+          BEGIN
+            #{adoption_error_sql "#{t.qualified_name} is not defined as #{t.type_spec}."}
           END
         }
       end

@@ -22,6 +22,7 @@ require 'yaml'
   primary_key_handler
   property_handler
   role_handler
+  scalar_type_handler
   schema_handler
   statistics_handler
   stored_procedure_handler
@@ -58,6 +59,7 @@ module Mkxms::Mssql
     attr_reader :schema_dir
     attr_init(
       :filegroups, :schemas, :roles,
+      :types,
       :clr_assemblies, :clr_types,
       :tables,
       :column_defaults, :pku_constraints, :foreign_keys,
@@ -81,6 +83,10 @@ module Mkxms::Mssql
     
     def handle_schema_element(parse)
       parse.delegate_to SchemaHandler, schemas
+    end
+    
+    def handle_type_element(parse)
+      parse.delegate_to ScalarTypeHandler, types
     end
     
     def handle_role_element(parse)
@@ -218,6 +224,14 @@ module Mkxms::Mssql
         "Create schemas for containing database objects and controlling access.",
         joined_modobj_sql(schemas, sep: "\nGO\n"),
         schemas.map(&:name).sort
+      )
+      
+      # Migration: Create scalar types
+      create_migration(
+        "create-scalar-types",
+        "Create user-defined scalar types.",
+        joined_modobj_sql(types),
+        types.map {|t| [t.schema, t.qualified_name]}.flatten
       )
       
       # Migration: Create synonyms
