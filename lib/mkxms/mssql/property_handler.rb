@@ -54,6 +54,14 @@ module Mkxms::Mssql
       def handle_property_element(parse)
         parse.context = PropertyHandler.new(self, parse.node.attributes)
       end
+      
+      private
+      def store_properties_on(target)
+        define_singleton_method(:extended_properties) do
+          target.extended_properties
+        end
+        return target
+      end
     end
     
     def initialize(describable, attrs)
