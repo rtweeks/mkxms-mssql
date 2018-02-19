@@ -293,34 +293,182 @@ module Mkxms::Mssql
             AND QUOTENAME(t.name) = #{t.name.sql_quoted}
           )
           BEGIN
-            #{adoption_error_sql "#{t.qualified_name} is not a user-defined scalar type."}
+            #{adoption_error_sql "#{t.qualified_name} is not a user-defined type."}
           END
           
-          IF NOT EXISTS (
-            SELECT * FROM sys.types t
-            JOIN sys.schemas s ON t.schema_id = s.schema_id
-            JOIN sys.types bt ON t.system_type_id = bt.user_type_id
-            WHERE t.is_user_defined <> 0
-            AND QUOTENAME(s.name) = #{t.schema.sql_quoted}
-            AND QUOTENAME(t.name) = #{t.name.sql_quoted}
-            AND QUOTENAME(bt.name) = #{t.base_type.sql_quoted}
-            AND t.nullable #{t.nullable? ? "<>" : "="} 0
-            #{
-              case t.capacity
-              when 'max'
-                "AND t.max_length = -1"
-              when Integer
-                "AND t.max_length = #{t.element_size * t.capacity}"
-              end
+        } + (
+          if t.respond_to?(:columns)
+            check_table_type_components_sql(t)
+          else
+            dedent %Q{
+              IF NOT EXISTS (
+                SELECT * FROM sys.types t
+                JOIN sys.schemas s ON t.schema_id = s.schema_id
+                JOIN sys.types bt ON t.system_type_id = bt.user_type_id
+                WHERE t.is_user_defined <> 0
+                AND QUOTENAME(s.name) = #{t.schema.sql_quoted}
+                AND QUOTENAME(t.name) = #{t.name.sql_quoted}
+                AND QUOTENAME(bt.name) = #{t.base_type.sql_quoted}
+                AND t.is_nullable #{t.nullable? ? "<>" : "="} 0
+                #{
+                  case t.capacity
+                  when 'max'
+                    "AND t.max_length = -1"
+                  when Integer
+                    "AND t.max_length = #{t.element_size * t.capacity}"
+                  end
+                }
+                #{"AND t.precision = #{t.precision}" if t.precision}
+                #{"AND t.scale = #{t.scale}" if t.scale}
+              )
+              BEGIN
+                #{adoption_error_sql "#{t.qualified_name} is not defined as #{t.type_spec}."}
+              END
             }
-            #{"AND t.precision = #{t.precision}" if t.precision}
-            #{"AND t.scale = #{t.scale}" if t.scale}
-          )
-          BEGIN
-            #{adoption_error_sql "#{t.qualified_name} is not defined as #{t.type_spec}."}
-          END
+          end
+        )
+      end
+    end
+    
+    class TableTypeKeyConstraintChecks < IndentedStringBuilder
+      include SqlStringManipulators
+      extend SqlStringManipulators
+      
+      def initialize(table, constraint, error_sql_proc)
+        super()
+        
+        @table = table
+        @constraint = constraint
+        @error_sql_proc = error_sql_proc
+        
+        add_tests
+      end
+      
+      attr_reader :table, :constraint
+      
+      def error_sql(s)
+        @error_sql_proc.call(s)
+      end
+      
+      def add_tests
+        dsl {
+          puts "IF NOT EXISTS(%s)" do
+            puts dedent %Q{
+              SELECT * FROM sys.key_constraints kc
+              JOIN sys.table_types tt ON tt.type_table_object_id = kc.parent_object_id
+              WHERE tt.user_type_id = TYPE_ID(#{table.qualified_name.sql_quoted})
+              AND kc.type = #{
+                case constraint.type
+                when 'PRIMARY KEY' then 'PK'
+                when 'UNIQUE' then 'UQ'
+                else raise "Unknown key constraint type"
+                end.sql_quoted
+              }
+            }
+            constraint.columns.each_with_index do |col, i|
+              puts dedent %Q{
+                AND (
+                  SELECT ic.key_ordinal
+                  FROM sys.index_columns ic
+                  JOIN sys.columns c
+                    ON c.object_id = ic.object_id
+                    AND c.column_id = ic.column_id
+                  WHERE ic.object_id = kc.parent_object_id
+                  AND ic.index_id = kc.unique_index_id
+                  AND QUOTENAME(c.name) = #{col.name.sql_quoted}
+                ) = #{i + 1}
+              }
+            end
+          end
+          puts "BEGIN"..."END" do
+            puts error_sql "Table type #{table.qualified_name} does not have a #{constraint.type} constraint with the expected sequence of columns (#{constraint.columns.map(&:name).join(', ')})."
+          end
         }
       end
+    end
+    
+    def check_table_type_components_sql(t)
+      [].tap do |tests|
+        t.columns.each do |col|
+          # The column itself
+          tests << (dedent %Q{
+            IF NOT EXISTS (
+              SELECT * FROM sys.columns c
+              JOIN sys.table_types tt ON tt.type_table_object_id = c.object_id
+              JOIN sys.schemas ts ON ts.schema_id = tt.schema_id
+              JOIN sys.types ct ON ct.user_type_id = c.user_type_id
+              JOIN sys.schemas cts ON cts.schema_id = ct.schema_id
+              WHERE QUOTENAME(c.name) = #{col.name.sql_quoted}
+              AND QUOTENAME(cts.name) = #{(col.type_schema || "[sys]").sql_quoted}
+              AND QUOTENAME(ct.name) = #{col.type_name.sql_quoted}
+            )
+            BEGIN
+              #{adoption_error_sql "Table type #{t.qualified_name} does not have a column named #{col.name}."}
+            END
+            
+            IF NOT EXISTS (
+              SELECT * FROM sys.columns c
+              JOIN sys.table_types tt ON tt.type_table_object_id = c.object_id
+              JOIN sys.schemas ts ON ts.schema_id = tt.schema_id
+              JOIN sys.types ct ON ct.user_type_id = c.user_type_id
+              JOIN sys.schemas cts ON cts.schema_id = ct.schema_id
+              WHERE QUOTENAME(c.name) = #{col.name.sql_quoted}
+              AND QUOTENAME(cts.name) = #{(col.type_schema || "[sys]").sql_quoted}
+              AND QUOTENAME(ct.name) = #{col.type_name.sql_quoted}
+              AND c.is_nullable = #{col.nullable? ? 1 : 0}
+              #{"AND c.max_length = #{col.max_byte_consumption}" if col.capacity}
+              #{"AND c.collation_name = #{col.collation.sql_quoted}" if col.collation}
+              #{"AND c.precision = #{col.precision}" if col.precision}
+              #{"AND c.scale = #{col.scale}" if col.scale}
+            )
+            BEGIN
+              #{adoption_error_sql "Column #{col.name} of #{t.qualified_name} is not defined as #{col.type_spec}."}
+            END
+          })
+          
+          # Column constraints
+          col.check_constraints.each do |cstrt|
+            tests << (dedent %Q{
+              IF NOT EXISTS (
+                SELECT * FROM sys.check_constraints cc
+                JOIN sys.columns c
+                  ON c.object_id = cc.parent_object_id
+                  AND c.column_id = cc.parent_column_id
+                JOIN sys.table_types tt ON tt.type_table_object_id = c.object_id
+                JOIN sys.schemas s ON s.schema_id = tt.schema_id
+                WHERE QUOTENAME(s.name) = #{t.schema.sql_quoted}
+                AND QUOTENAME(tt.name) = #{t.name.sql_quoted}
+                AND QUOTENAME(c.name) = #{col.name.sql_quoted}
+                AND cc.definition = #{cstrt.expression.sql_quoted}
+              )
+              BEGIN
+                #{adoption_error_sql "Expected CHECK constraint on #{col.name} of #{t.qualified_name} for #{cstrt.expression} not present."}
+              END
+            })
+          end
+        end
+        
+        # Table constraints
+        t.constraints.select {|c| ['PRIMARY KEY', 'UNIQUE'].include? c.type}.each do |c|
+          tests << TableTypeKeyConstraintChecks.new(t, c, method(:adoption_error_sql)).to_s
+        end
+        t.constraints.select {|c| c.type == 'CHECK'}.each do |c|
+          tests << (dedent %Q{
+            IF NOT EXISTS (
+              SELECT * FROM sys.check_constraints cc
+              JOIN sys.table_types tt ON tt.type_table_object_id = cc.parent_object_id
+              JOIN sys.schemas s ON s.schema_id = tt.schema_id
+              WHERE QUOTENAME(s.name) = #{t.schema.sql_quoted}
+              AND QUOTENAME(tt.name) = #{t.name.sql_quoted}
+              AND cc.parent_column_id = 0
+              AND cc.definition = #{c.expression.sql_quoted}
+            )
+            BEGIN
+              #{adoption_error_sql "Expected CHECK constraint for #{c.expression} on #{t.qualified_name} not present."}
+            END
+          })
+        end
+      end.join("\n")
     end
     
     def check_clr_types

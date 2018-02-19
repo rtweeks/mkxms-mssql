@@ -28,6 +28,7 @@ require 'yaml'
   stored_procedure_handler
   synonym_handler
   table_handler
+  table_type_handler
   unique_constraint_handler
   utils
   view_handler
@@ -87,6 +88,10 @@ module Mkxms::Mssql
     
     def handle_type_element(parse)
       parse.delegate_to ScalarTypeHandler, types
+    end
+    
+    def handle_table_type_element(parse)
+      parse.delegate_to TableTypeHandler, types
     end
     
     def handle_role_element(parse)
