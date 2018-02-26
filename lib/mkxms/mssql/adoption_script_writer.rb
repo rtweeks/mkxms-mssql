@@ -285,8 +285,8 @@ module Mkxms::Mssql
             JOIN sys.schemas s ON t.schema_id = s.schema_id
             WHERE t.is_user_defined <> 0
             AND t.is_assembly_type = 0
-            AND t.system_type_id NOT IN (
-              SELECT st.user_type_id
+            AND t.user_type_id NOT IN (
+              SELECT st.system_type_id
               FROM sys.types st
             )
             AND QUOTENAME(s.name) = #{t.schema.sql_quoted}
@@ -378,6 +378,7 @@ module Mkxms::Mssql
             SELECT *
             FROM sys.objects fn
             JOIN sys.schemas s ON fn.schema_id = s.schema_id
+            JOIN sys.assembly_modules asmmod ON fn.object_id = asmmod.object_id
             JOIN sys.assemblies asm ON asmmod.assembly_id = asm.assembly_id
             WHERE fn.type = 'AF'
             AND QUOTENAME(s.name) = #{agg.schema.sql_quoted}
@@ -1227,19 +1228,21 @@ module Mkxms::Mssql
           
           puts "IF NOT EXISTS (%s)" do
             execution_identity_test = (if trigger.execute_as == 'OWNER'
-              "sql.execute_as_principal_id = -2"
+              "COALESCE(sql.execute_as_principal_id, asmmod.execute_as_principal_id) = -2"
             elsif trigger.execute_as
-              "QUOTENAME(p.name) = #{trigger.execute_as.sql_quoted}"
+              "(QUOTENAME(p.name) = #{trigger.execute_as.sql_quoted} OR QUOTENAME(p2.name) = #{trigger.execute_as.sql_quoted})"
             else
-              "sql.execute_as_principal_id IS NULL"
+              "COALESCE(sql.execute_as_principal_id, asmmod.execute_as_principal_id) IS NULL"
             end)
             
             puts dedent %Q{
               SELECT * FROM sys.triggers tgr
               JOIN sys.objects o ON tgr.object_id = o.object_id
               JOIN sys.schemas s ON o.schema_id = s.schema_id
-              JOIN sys.sql_modules sql ON tgr.object_id = sql.object_id
+              LEFT JOIN sys.sql_modules sql ON tgr.object_id = sql.object_id
               LEFT JOIN sys.database_principals p ON p.principal_id = sql.execute_as_principal_id
+              LEFT JOIN sys.assembly_modules asmmod ON tgr.object_id = asmmod.object_id
+              LEFT JOIN sys.database_principals pa ON pa.principal_id = asmmod.execute_as_principal_id
               WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
               AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
               AND #{execution_identity_test}
@@ -1334,15 +1337,15 @@ module Mkxms::Mssql
           puts "IF NOT EXISTS(%s)" do
             puts dedent %Q{
               SELECT * FROM sys.triggers tgr
-              JOIN sys.object o ON tgr.object_id = o.object_id
+              JOIN sys.objects o ON tgr.object_id = o.object_id
               JOIN sys.schemas s ON o.schema_id = s.schema_id
               JOIN sys.assembly_modules asmmod ON tgr.object_id = asmmod.object_id
               JOIN sys.assemblies asm ON asmmod.assembly_id = asm.assembly_id
               WHERE QUOTENAME(s.name) = #{trigger.schema.sql_quoted}
               AND QUOTENAME(tgr.name) = #{trigger.name.sql_quoted}
-              AND QUOTENAME(asm.name) = #{trigger.clr_impl.assembly}
-              AND QUOTENAME(asmmod.assembly_class) = #{trigger.clr_impl.asm_class}
-              AND QUOTENAME(asmmod.assembly_method) = #{trigger.clr_impl.method}
+              AND QUOTENAME(asm.name) = #{trigger.clr_impl.assembly.sql_quoted}
+              AND QUOTENAME(asmmod.assembly_class) = #{trigger.clr_impl.asm_class.sql_quoted}
+              AND QUOTENAME(asmmod.assembly_method) = #{trigger.clr_impl.method.sql_quoted}
             }
           end
           puts "BEGIN".."END" do
@@ -1721,11 +1724,9 @@ module Mkxms::Mssql
                 AND #{definition_matches_by_hash('sql.definition', sproc.definition)}
               }
             end
-            puts "BEGIN"
-            indented {
-              puts adoption_error_sql "Stored procedure #{sproc.qualified_name} does not have the expected definition."
-            }
-            puts "END"
+          end
+          puts "BEGIN"..."END" do
+            puts adoption_error_sql "Stored procedure #{sproc.qualified_name} does not have the expected definition."
           end
           puts access_object_adoption_sql(:PROCEDURE, sproc.qualified_name)
         }

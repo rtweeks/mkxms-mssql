@@ -231,7 +231,7 @@ module Mkxms::Mssql
         "create-scalar-types",
         "Create user-defined scalar types.",
         joined_modobj_sql(types),
-        types.map {|t| [t.schema, t.qualified_name]}.flatten
+        types.map {|t| [t.schema, t.qualified_name]}.flatten.uniq.sort
       )
       
       # Migration: Create synonyms
