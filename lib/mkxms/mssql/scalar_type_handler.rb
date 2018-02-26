@@ -40,7 +40,7 @@ module Mkxms::Mssql
         when precision
           ts << "(#{[precision, scale].compact.join(", ")})"
         end
-        ts << " NOT NULL" unless nullable
+        ts << " NOT NULL" unless nullable?
       end
     end
     

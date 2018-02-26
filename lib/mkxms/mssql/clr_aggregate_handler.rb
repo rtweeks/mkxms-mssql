@@ -8,6 +8,7 @@ module Mkxms::Mssql
   class ClrAggregate
     include ExtendedProperties, Property::Hosting, Property::SchemaScoped
     include Utils::SchemaQualifiedName
+    extend Utils::InitializedAttributes
     
     SQL_OBJECT_TYPE = 'AGGREGATE'
     
@@ -21,7 +22,7 @@ module Mkxms::Mssql
     attr_init(:params) {[]}
     
     def to_sql
-      (procedure_def_sql + extended_properties_sql + param_properties_sql).join("\n")
+      (procedure_def_sql + extended_properties_sql + param_properties_sql)
     end
     
     def procedure_def_sql

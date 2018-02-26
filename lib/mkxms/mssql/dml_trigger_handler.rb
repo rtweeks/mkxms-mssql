@@ -104,7 +104,7 @@ module Mkxms::Mssql
     # This function handles a CLR implementation
     def handle_implementation_element(parse)
       a = parse.node.attributes
-      @trigger.clr_impl = ClrMethod(a['assembly'], a['class'], a['method'])
+      @trigger.clr_impl = ClrMethod.new(a['assembly'], a['class'], a['method'])
     end
   end
 end

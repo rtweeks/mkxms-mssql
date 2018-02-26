@@ -42,7 +42,7 @@ module Mkxms::Mssql
       @parameter = parameter
     end
     
-    attr_reader parameter
+    attr_reader :parameter
   end
   
   # Used for scalar and result table column type specification

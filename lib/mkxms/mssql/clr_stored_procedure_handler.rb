@@ -8,6 +8,7 @@ module Mkxms::Mssql
   class ClrStoredProcedure
     include ExtendedProperties, Property::Hosting, Property::SchemaScoped
     include Utils::SchemaQualifiedName
+    extend Utils::InitializedAttributes
     
     SQL_OBJECT_TYPE = 'PROCEDURE'
     
