@@ -86,11 +86,7 @@ module Mkxms::Mssql
         a['name'],
         a['assembly'],
         a['class']
-      ).tap {|t| types << t}
-    end
-    
-    def extended_properties
-      @type_info.extended_properties
+      ).tap {|t| types << store_properties_on(t)}
     end
   end
 end

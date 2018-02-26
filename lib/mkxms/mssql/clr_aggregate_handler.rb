@@ -57,12 +57,9 @@ module Mkxms::Mssql
       a = node.attributes
       
       @aggregate = ClrAggregate.new(a).tap do |agg|
+        store_properties_on agg
         aggregates << agg
       end
-    end
-    
-    def extended_properties
-      @aggregate.extended_properties
     end
     
     def handle_implementation_element(parse)

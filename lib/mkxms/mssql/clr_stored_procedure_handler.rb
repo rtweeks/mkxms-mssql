@@ -58,12 +58,9 @@ module Mkxms::Mssql
       a = node.attributes
       
       @procedure = ClrStoredProcedure.new(a).tap do |sp|
+        store_properties_on sp
         procedures << sp
       end
-    end
-    
-    def extended_properties
-      @procedure.extended_properties
     end
     
     def handle_implementation_element(parse)

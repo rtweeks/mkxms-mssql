@@ -32,12 +32,9 @@ module Mkxms::Mssql
     def initialize(synonyms, node)
       a = node.attributes
       Synonym.new(a['schema'], a['name'], a['for']).tap do |syn|
+        store_properties_on syn
         synonyms << (@synonym = syn)
       end
-    end
-    
-    def extended_properties
-      @synonym.extended_properties
     end
   end
 end

@@ -100,11 +100,7 @@ module Mkxms::Mssql
       include PropertyHandler::ElementHandler
       
       def initialize(column)
-        @column = column
-      end
-      
-      def extended_properties
-        @column.extended_properties
+        @column = store_properties_on(column)
       end
     end
     
@@ -112,12 +108,9 @@ module Mkxms::Mssql
       a = node.attributes
       
       @function = ClrFunction.new(a).tap do |f|
+        store_properties_on f
         functions << f
       end
-    end
-    
-    def extended_properties
-      @function.extended_properties
     end
     
     def handle_implementation_element(parse)

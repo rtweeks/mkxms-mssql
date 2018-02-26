@@ -44,12 +44,9 @@ module Mkxms::Mssql
       a = node.attributes
       
       @statistics = Statistics.new(a).tap do |s|
+        store_properties_on s
         statistics_objs << s
       end
-    end
-    
-    def extended_properties
-      @statistics.extended_properties
     end
     
     def handle_column_element(parse)

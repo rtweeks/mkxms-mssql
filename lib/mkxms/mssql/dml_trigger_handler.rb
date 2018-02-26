@@ -70,12 +70,9 @@ module Mkxms::Mssql
         disabled: a['disabled'],
         not_replicable: a['not-for-replication'],
       ).tap do |t|
+        store_properties_on t
         triggers << t
       end
-    end
-    
-    def extended_properties
-      @trigger.extended_properties
     end
     
     def dependencies

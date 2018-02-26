@@ -75,12 +75,9 @@ module Mkxms::Mssql
     
     def initialize(indexes, node)
       @index = Index.new(node.attributes).tap do |i|
+        store_properties_on i
         indexes << i
       end
-    end
-    
-    def extended_properties
-      @index.extended_properties
     end
     
     def handle_column_element(parse)

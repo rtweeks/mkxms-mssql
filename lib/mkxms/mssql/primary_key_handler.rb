@@ -16,12 +16,9 @@ module Mkxms::Mssql
       a = node.attributes
       
       @pkey = PrimaryKey.new(a).tap do |c|
+        store_properties_on c
         constraints << c
       end
-    end
-    
-    def extended_properties
-      @pkey.extended_properties
     end
     
     def handle_column_element(parse)

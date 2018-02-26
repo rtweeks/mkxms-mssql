@@ -89,12 +89,9 @@ module Mkxms::Mssql
     def initialize(user_types, node)
       a = node.attributes
       ScalarType.new(a).tap do |t|
+        store_properties_on t
         user_types << (@type = t)
       end
-    end
-    
-    def extended_properties
-      @type.extended_properties
     end
     
     def handle_default_element(parse)
