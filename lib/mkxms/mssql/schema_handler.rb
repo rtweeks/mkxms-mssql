@@ -31,12 +31,9 @@ module Mkxms::Mssql
     
     def initialize(schemas, node)
       @schema = Schema.new(node.attributes['name'], owner: node.attributes['owner']).tap do |s|
+        store_properties_on s
         schemas << s
       end
-    end
-    
-    def extended_properties
-      @schema.extended_properties
     end
   end
 end

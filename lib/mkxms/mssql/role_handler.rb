@@ -40,12 +40,9 @@ module Mkxms::Mssql
     
     def initialize(roles, node)
       @role = Role.new(node.attributes['name'], owner: node.attributes['owner']).tap do |r|
+        store_properties_on r
         roles << r
       end
-    end
-    
-    def extended_properties
-      @role.extended_properties
     end
     
     def handle_member_of_element(parse)

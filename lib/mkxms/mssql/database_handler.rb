@@ -7,7 +7,13 @@ require 'yaml'
 
   adoption_script_writer
   check_constraint_handler
+  clr_aggregate_handler
+  clr_assembly_handler
+  clr_function_handler
+  clr_stored_procedure_handler
+  clr_type_handler
   default_constraint_handler
+  dml_trigger_handler
   filegroup_handler
   foreign_key_handler
   function_handler
@@ -16,10 +22,13 @@ require 'yaml'
   primary_key_handler
   property_handler
   role_handler
+  scalar_type_handler
   schema_handler
   statistics_handler
   stored_procedure_handler
+  synonym_handler
   table_handler
+  table_type_handler
   unique_constraint_handler
   utils
   view_handler
@@ -34,15 +43,32 @@ module Mkxms::Mssql
     include ExtendedProperties, PropertyHandler::ElementHandler
     
     ADOPTION_SQL_FILE = "adopt.sql"
+    DRY_RUN_MARKER = "for dry run"
+    
+    class IgnoreText
+      def initialize(node)
+      end
+      
+      def handle_text(t, node)
+      end
+    end
     
     def initialize(**kwargs)
       @schema_dir = kwargs[:schema_dir] || Pathname.pwd
     end
     
     attr_reader :schema_dir
-    attr_init(:filegroups, :schemas, :roles, :tables, :column_defaults, :pku_constraints, :foreign_keys, :check_constraints){[]}
+    attr_init(
+      :filegroups, :schemas, :roles,
+      :types,
+      :clr_assemblies, :clr_types,
+      :tables,
+      :column_defaults, :pku_constraints, :foreign_keys,
+      :check_constraints, :dml_triggers,
+      :synonyms,
+    ){[]}
     attr_init(:indexes, :statistics){[]}
-    attr_init(:views, :udfs, :procedures){[]}
+    attr_init(:views, :udfs, :procedures, :aggregates){[]}
     attr_init(:permissions){[]}
     
     def handle_database_element(parse)
@@ -58,6 +84,14 @@ module Mkxms::Mssql
     
     def handle_schema_element(parse)
       parse.delegate_to SchemaHandler, schemas
+    end
+    
+    def handle_type_element(parse)
+      parse.delegate_to ScalarTypeHandler, types
+    end
+    
+    def handle_table_type_element(parse)
+      parse.delegate_to TableTypeHandler, types
     end
     
     def handle_role_element(parse)
@@ -104,8 +138,20 @@ module Mkxms::Mssql
       parse.delegate_to StoredProcedureHandler, procedures
     end
     
+    def handle_clr_stored_procedure_element(parse)
+      parse.delegate_to ClrStoredProcedureHandler, procedures
+    end
+    
     def handle_user_defined_function_element(parse)
       parse.delegate_to FunctionHandler, udfs
+    end
+    
+    def handle_clr_function_element(parse)
+      parse.delegate_to ClrFunctionHandler, udfs
+    end
+    
+    def handle_clr_aggregate_element(parse)
+      parse.delegate_to ClrArggregateHandler, aggregates
     end
     
     def handle_granted_element(parse)
@@ -116,11 +162,32 @@ module Mkxms::Mssql
       parse.delegate_to PermissionHandler, permissions
     end
     
+    def handle_clr_assembly_element(parse)
+      parse.delegate_to ClrAssemblyHandler, clr_assemblies
+    end
+    
+    def handle_clr_type_element(parse)
+      parse.delegate_to ClrTypeHandler, clr_types
+    end
+    
+    def handle_dml_trigger_element(parse)
+      parse.delegate_to DmlTriggerHandler, dml_triggers
+    end
+    
+    def handle_synonym_element(parse)
+      parse.delegate_to SynonymHandler, synonyms
+    end
+    
     def create_source_files
       dbinfo_path = @schema_dir.join(XMigra::SchemaManipulator::DBINFO_FILE)
       
       if dbinfo_path.exist?
-        raise ProgramArgumentError.new("#{@schema_dir} already contains an XMigra schema")
+        if dbinfo_path.open {|f| YAML.load(f)[DRY_RUN_MARKER]}
+          # Delete everything in the source files, so we can do a dry run over
+          @schema_dir.each_child {|e| e.rmtree}
+        else
+          raise ProgramArgumentError.new("#{@schema_dir} already contains an XMigra schema")
+        end
       end
       
       # TODO: Sort dependencies of triggers, views, user defined functions, and
@@ -133,9 +200,20 @@ module Mkxms::Mssql
       # Create and populate @schema_dir + XMigra::SchemaManipulator::DBINFO_FILE
       dbinfo_path.open('w') do |dbi|
         dbi.puts "system: #{XMigra::MSSQLSpecifics::SYSTEM_NAME}"
+        if Utils.dry_run?
+          dbi.puts "#{DRY_RUN_MARKER}: true"
+        end
       end
       
       # TODO: Create migration to check required filegroups and files
+      
+      # Migration: Check CLR assemblies
+      create_migration(
+        "check-clr-assemblies",
+        "Check expected CLR assemblies have been created.",
+        ClrAssembly.setup_sql + "\n" + joined_modobj_sql(clr_assemblies),
+        clr_assemblies.map(&:name).sort
+      )
       
       # Migration: Create roles
       create_migration(
@@ -151,6 +229,30 @@ module Mkxms::Mssql
         "Create schemas for containing database objects and controlling access.",
         joined_modobj_sql(schemas, sep: "\nGO\n"),
         schemas.map(&:name).sort
+      )
+      
+      # Migration: Create scalar types
+      create_migration(
+        "create-scalar-types",
+        "Create user-defined scalar types.",
+        joined_modobj_sql(types),
+        types.map {|t| [t.schema, t.qualified_name]}.flatten.uniq.sort
+      )
+      
+      # Migration: Create synonyms
+      create_migration(
+        "create-synonyms",
+        "Create synonyms for other objects in the database.",
+        joined_modobj_sql(synonyms),
+        synonyms.map {|s| [s.schema, s.qualified_name]}.flatten
+      )
+      
+      # Migration: Create CLR types that don't exist
+      create_migration(
+        "create-clr-types",
+        "Create CLR types (unless already existing).",
+        ClrType.setup_sql + "\n" + joined_modobj_sql(clr_types),
+        clr_types.map(&:qualified_name).sort
       )
       
       tables.each do |table|
@@ -196,6 +298,16 @@ module Mkxms::Mssql
         check_constraints.map {|c| [c.schema, c.qualified_table, c.qualified_name].compact}.flatten.uniq.sort
       )
       
+      # Migration: Add DML triggers
+      create_migration(
+        "add-triggers",
+        "Add triggers.",
+        joined_modobj_sql(dml_triggers, sep: DmlTriggerHandler.ddl_block_separator) + "\n",
+        dml_triggers.map do |t|
+          [t.schema, t.table.qualified_name, t.qualified_name].compact
+        end.flatten.uniq.sort
+      ) unless dml_triggers.empty?
+      
       # Check that no super-permissions reference a view, user-defined function, or stored procedure
       access_object_names = (views + udfs + procedures).map {|ao| ao.qualified_name}
       permissions.map {|p| p.super_permissions}.flatten.select do |p|
@@ -227,6 +339,15 @@ module Mkxms::Mssql
       end
       
       write_statistics
+      
+      aggregates.each do |agg|
+        create_migration(
+          "register-#{agg.qualified_name}-aggregate",
+          "Register the CLR aggregate function #{agg.qualified_name}",
+          agg.to_sql.join("\nGO\n"),
+          [agg.schema, agg.qualified_name]
+        )
+      end
       
       views.each do |view|
         write_access_def(view, 'view')

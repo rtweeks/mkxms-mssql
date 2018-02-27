@@ -31,13 +31,10 @@ module Mkxms::Mssql
         end
       ]
       @filegroup = Filegroup.new(**group_options).tap do |fg|
+        store_properties_on fg
         filegroups << fg
       end
       @files = []
-    end
-    
-    def extended_properties
-      @filegroup.extended_properties
     end
     
     def handle_file_element(parse)

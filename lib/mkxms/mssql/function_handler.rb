@@ -45,12 +45,9 @@ module Mkxms::Mssql
       a = node.attributes
       
       @function = Function.new(a).tap do |f|
+        store_properties_on f
         functions << f
       end
-    end
-    
-    def extended_properties
-      @function.extended_properties
     end
     
     def handle_definition_element(parse); end

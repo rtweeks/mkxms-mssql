@@ -128,15 +128,12 @@ module Mkxms::Mssql
           c.flags << :replicated if a['replicated']
           c.flags << :filestream if a['filestream']
           c.type_info.update(col_attrs)
+          store_properties_on c
           columns << c
         end
       end
       
       attr_reader :column
-      
-      def extended_properties
-        @column.extended_properties
-      end
       
       def handle_computed_expression_element(parse)
         column.flags << :persisted if parse.node.attributes['persisted']
@@ -156,6 +153,7 @@ module Mkxms::Mssql
     def initialize(tables, node)
       a = node.attributes
       @table = Table.new(a['schema'], a['name']).tap do |t|
+        store_properties_on t
         tables << t
       end
       @table.owner = a['owner']
@@ -163,10 +161,6 @@ module Mkxms::Mssql
       @table.lob_storage = a['textimage-on']
       @identity_column = a['identity']
       @rowguid_column = a['rowguidcol']
-    end
-    
-    def extended_properties
-      @table.extended_properties
     end
     
     def handle_column_element(parse)
