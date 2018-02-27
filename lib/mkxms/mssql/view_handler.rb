@@ -34,12 +34,9 @@ module Mkxms::Mssql
       a = node.attributes
       
       @view = View.new(a).tap do |v|
+        store_properties_on v
         views << v
       end
-    end
-    
-    def extended_properties
-      @view.extended_properties
     end
     
     def handle_definition_element(parse); end

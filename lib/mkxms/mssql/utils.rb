@@ -50,6 +50,92 @@ module Mkxms::Mssql::Utils
       item.send(@children_message).each(&blk)
     end
   end
+  
+  module StringHelpers
+    def expand_tabs(tabstops_every = 8)
+      self.lines.map do |l|
+        if l.include?("\t")
+          segs = l.split("\t")
+          segs[0...-1].map do |seg|
+            # seg length must _increase_ to a multiple of 8
+            spaces_needed = tabstops_every - (seg.length + 1) % tabstops_every + 1
+            seg + ' ' * spaces_needed
+          end.join('') + segs[-1]
+        else
+          l
+        end
+      end.join('')
+    end
+    
+    def sql_quoted
+      %Q{N'#{gsub("'", "''")}'}
+    end
+  end
+  
+  # Primes in the interval [100, 255].  This enumerator can be queried by
+  # classes that generate RAISERROR statements to provide unique-ish context
+  # by passing the next multiple of one of the values taken from this
+  # enumerator for each RAISERROR statement output (as a literal number in
+  # the generated SQL).  This will assist
+  RAISERROR_STATE_BASE = [
+    101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151, 157, 163 ,167, 173,
+    179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233, 239, 241, 251
+  ].each unless defined? RAISERROR_STATE_BASE
+  
+  # Create one instance of this class to write a sequence of similar
+  # RAISERROR messages.  The state of each message will be unique within the
+  # sequence until the 256th message.  The particular order is unique to
+  # all other instances of this class.
+  class RaiserrorWriter
+    # Severity:
+    #   11 is the minimum to transfer into a CATCH
+    #   19 or higher can only be raised by sysadmin
+    #   20 or higher is fatal to the connection
+    
+    SYMBOLIC_SEVERITIES = {
+      :warning => 1,
+      :error => 11,
+    }
+    
+    def initialize(message, severity: 11)
+      # Get a unique prime to use as an ideal to generate the 0-255 state-value
+      # space.  With luck, the number is fairly unique to the message.
+      severity = map_severity(severity)
+      @state_base = RAISERROR_STATE_BASE.next
+      @index = 1 # Start at 1 because 0 is the kernel -- every @state_base * 0 == 0
+      @message = message
+      @severity = severity
+    end
+    
+    attr_reader :state_base
+    attr_accessor :message, :severity
+    
+    def map_severity(value)
+      SYMBOLIC_SEVERITIES.fetch(value, value)
+    end
+    
+    def current_statement(*args, severity: nil)
+      severity = map_severity(severity || self.severity)
+      state_str = current_error_marker
+      full_message = %Q{N'#{message.gsub("'", "''")} (search for "#{state_str}")'}
+      trailing_args = ([state_str] + args.map(&:to_s)).join(', ')
+      %Q{RAISERROR (#{full_message}, #{severity}, #{trailing_args})}.tap do |stmt|
+        stmt.define_singleton_method(:error_marker) {state_str}
+      end
+    end
+    
+    def current_error_marker
+      "/*ERR*/ #{current_state} /*ERR*/"
+    end
+    
+    def current_state
+      (state_base * @index) % 256
+    end
+    
+    def next_statement(*args, **kwargs)
+      current_statement(*args, **kwargs).tap {@index += 1}
+    end
+  end
 end
 
 class << Mkxms::Mssql::Utils
@@ -80,4 +166,14 @@ class << Mkxms::Mssql::Utils
       l
     end.join('')
   end
+  
+  def dry_run?
+    @dry_run.tap do |v|
+      (break @dry_run = !!(ENV.fetch('DRY_RUN', '') =~ /^(y(es)?|t(rue)?|1)$/i)) if v.nil?
+    end
+  end
+end
+
+class String
+  include Mkxms::Mssql::Utils::StringHelpers
 end

@@ -48,7 +48,13 @@ module Mkxms::Mssql
       
       def puts(*args, &blk)
         if blk
-          @builder.puts(*args) {IndentedStringBuilder.new.tap {|i| i.dsl(&blk)}}
+          if args[0].kind_of? Range
+            @builder.puts(args[0].begin, *args[1..-1])
+            indented(&blk)
+            @builder.puts(args[0].end, *args[1..-1])
+          else
+            @builder.puts(*args) {IndentedStringBuilder.new.tap {|i| i.dsl(&blk)}}
+          end
         else
           @builder.puts(*args)
         end
@@ -123,7 +129,7 @@ module Mkxms::Mssql
         subbed_multiline = false
         s.scan(scan_pattern) do |m|
           chunk_range, completed = completed...$~.begin(0), $~.end(0)
-          chunk_empty = !chunk_range.cover?(chunk_range.begin)
+          chunk_empty = !chunk_range.cover?(chunk_range.begin) && s != ''
           
           case
           when m == "\n"
