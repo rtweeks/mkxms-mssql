@@ -1851,7 +1851,7 @@ module Mkxms::Mssql
             puts adoption_error_sql "Stored procedure #{sproc.qualified_name} does not exist."
           }
           puts "END ELSE IF NOT EXISTS (%s)" do
-            if sproc.clr_impl
+            if sproc.respond_to?(:clr_impl)
               puts dedent %Q{
                 SELECT * FROM sys.objects sproc
                 JOIN sys.assembly_modules asmmod ON sproc.object_id = asmmod.object_id
@@ -1898,7 +1898,7 @@ module Mkxms::Mssql
             puts adoption_error_sql "Function #{udf.qualified_name} does not exist."
           }
           puts "END ELSE IF NOT EXISTS (%s)" do
-            if udf.clr_impl
+            if udf.respond_to?(:clr_impl)
               puts dedent %Q{
                 SELECT * FROM sys.objects fn
                 JOIN sys.schemas s ON fn.schema_id = s.schema_id
