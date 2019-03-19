@@ -365,7 +365,7 @@ module Mkxms::Mssql
         YAML.dump(
           permissions.map do |p|
             p.regular_permissions_graph.map do |k, v|
-              [k, {p.subject => v}]
+              [k, {XMigra::MSSQLSpecifics.strip_identifier_quoting(p.subject) => v}]
             end.to_h
           end.inject({}) do |r, n|
             r.update(n) {|k, lv, rv| lv.merge rv}
